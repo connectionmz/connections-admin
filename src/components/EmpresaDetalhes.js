@@ -341,35 +341,9 @@ const fetchSubscriptions = async (companyId) => {
                   </div>
         );
       case 'cotacoes':
-        return  ( <div>
-          <h2 className="text-xl font-bold">Cotações da Empresa</h2>
-          {Object.keys(cotacoes).length > 0 ? (
-            <table className="min-w-full border-collapse border border-gray-200 mt-4">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="border border-gray-200 px-4 py-2 text-left">Título</th>
-                  <th className="border border-gray-200 px-4 py-2 text-left">Descrição</th>
-                  <th className="border border-gray-200 px-4 py-2 text-left">Setor</th>
-                  <th className="border border-gray-200 px-4 py-2 text-left">Status</th>
-                  <th className="border border-gray-200 px-4 py-2 text-left">Data Limite</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(cotacoes).map(([cotacaoId, cotacao]) => (
-                  <tr key={cotacaoId} className="border-b hover:bg-gray-50">
-                    <td className="border border-gray-200 px-4 py-2">{cotacao.title}</td>
-                    <td className="border border-gray-200 px-4 py-2"> <div dangerouslySetInnerHTML={{ __html: cotacao.description }} />        </td>
-                    <td className="border border-gray-200 px-4 py-2">{cotacao.sector}</td>
-                    <td className="border border-gray-200 px-4 py-2">{cotacao.status}</td>
-                    <td className="border border-gray-200 px-4 py-2">{new Date(cotacao.datalimite).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="text-gray-500 mt-4">Aqui você verá as cotações da empresa.</p>
-          )}
-        </div>
+        return  (<div>
+                  
+                </div>
         )
       case 'concursos':
         return <p className="text-gray-500">Aqui você verá os concursos da empresa.</p>;
