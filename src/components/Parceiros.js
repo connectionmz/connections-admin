@@ -12,7 +12,8 @@ const Parceiros = () => {
     email: '',
     telefone: '',
     tipo: '', // "Parceiro" ou "Investidor"
-    companyId:''
+    companyId:'',
+    logo:''
   });
   const [editing, setEditing] = useState(false);
   const [feedback, setFeedback] = useState({ message: '', success: true });
@@ -93,6 +94,7 @@ const Parceiros = () => {
       nome: company?.nome || '',
       email: company?.email || '',
       telefone: company?.telefone || '',
+      logo:company?.logoUrl
     }));
   };
   

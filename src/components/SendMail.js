@@ -1,39 +1,36 @@
+import axios from 'axios';
 
-const mailgun = require("mailgun-js");
+const sendEmail = async (to, companyName) => {
+  const subject = 'Ativação de Conta';
 
-// Configure sua API Key e domínio
-const DOMAIN = "sandbox-123.mailgun.org"; // Substitua pelo seu domínio Mailgun
+  const textContent = `
+    Olá ${companyName},
 
-// Substitua pela sua API Key do Mailgun
-const apiKey = "1057072c8d327531b672ebac65de0a5a-c02fd0ba-ea573078";
+    Sua conta foi ativada com sucesso! Agora você pode acessar todos os recursos da nossa plataforma.
 
+    Para começar, acesse: https://app.connectionmozambique.com
 
+    Caso tenha alguma dúvida ou precise de suporte, entre em contato connosco.
 
-// Inicialize o Mailgun
-const mg = mailgun({ apiKey: apiKey, domain: DOMAIN });
+    Atenciosamente,
+    Equipe de Suporte
+    suporte@connectionmozambique.com
+  `;
 
-// Função para enviar e-mail
-const enviarEmail = () => {
-  const data = {
-    from: "Seu Nome <seuemail@sandbox-123.mailgun.org>",
-    to: "destinatario@exemplo.com",
-    subject: "Novo Pedido de Cotação",
-    text: "Você recebeu um novo pedido de cotação.",
-    html: `
-      <h1>Pedido de Cotação</h1>
-      <p>Olá! Confira os detalhes do pedido no painel administrativo.</p>
-    `
+  const emailData = {
+    to,
+    subject,
+    text: textContent, 
   };
 
-  // Envia o e-mail
-  mg.messages().send(data, (error, body) => {
-    if (error) {
-      console.error("Erro ao enviar o e-mail:", error);
-    } else {
-      console.log("E-mail enviado com sucesso:", body);
-    }
-  });
+  try {
+    const response = await axios.post('https://mohvi-sendmail.vercel.app/send-email', emailData);
+    console.log('E-mail enviado com sucesso:', response.data);
+    return true;
+  } catch (error) {
+    console.error('Erro ao enviar o e-mail:', error);
+    return false;
+  }
 };
 
-// Execute a função para enviar e-mail
-enviarEmail();
+export default sendEmail;

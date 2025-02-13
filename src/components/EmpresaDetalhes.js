@@ -4,6 +4,7 @@ import { ref, get, push, orderByChild, equalTo, query, update } from 'firebase/d
 import { db } from '../fb'; 
 import jsPDF from 'jspdf';
 import { Alert, Snackbar } from '@mui/material';
+import ModulosComponent from './ModulosComponent';
 
 const EmpresaDetalhes = () => {
   const { id } = useParams(); 
@@ -28,33 +29,19 @@ const EmpresaDetalhes = () => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info'); // 'info', 'success', 'error', etc.
+  const [accessAction, setAccessAction] = useState(""); // Variável para armazenar a ação (Dar ou Remover acesso)
 
 
   useEffect(() => {
 
-    const fetchDocuments = async () => {
-      try {
-        const companyRef = ref(db, `company/${id}`);
-        const snapshot = await get(companyRef);
+    const modulesRef = ref(db, `modules/modulos`);
 
-        if (snapshot.exists() && snapshot.val().verificationDocs) {
-          console.log(snapshot.val())
-          setDocumentLinks(snapshot.val().verificationDocs);
-        } else {
-          setDocumentLinks([]);
-        }
-      } catch (error) {
-        console.error('Erro ao carregar documentos:', error);
-      }
-    };
     const fetchEmpresa = async () => {
       setLoading(true); 
       try {
         const snapshot = await get(ref(db, `company/${id}`));
         const data = snapshot.val();
 
-        console.log(data)
-        
         if (data) {
           setEmpresa(data);
           setUserModules(data.activeModules || []); 
@@ -100,10 +87,7 @@ const fetchSubscriptions = async (companyId) => {
     setLoading(false);
   }
 };
-
-    
-
-    const fetchCotacoes = async () => {
+const fetchCotacoes = async () => {
       const cotacoesRef = ref(db, 'cotacoes');
       setLoading(true);
   
@@ -134,39 +118,8 @@ const fetchSubscriptions = async (companyId) => {
       } finally {
           setLoading(false);
       }
-    }
+}
 
-  const fetchConcursos = async () => {
-    const concursosRef = ref(db, 'concursos');
-    setLoading(true);
-
-    try {
-        const concursosSnapshot = await get(concursosRef);
-        const concursosData = concursosSnapshot.val();
-
-        if (concursosData) {
-            const filteredConcursos = Object.keys(concursosData)
-                .filter((concursoId) => concursosData[concursoId].company.id === id)
-                .reduce((acc, concursoId) => {
-                    acc[concursoId] = concursosData[concursoId];
-                    return acc;
-                }, {});
-
-            if (Object.keys(filteredConcursos).length > 0) {
-                setConcursos(filteredConcursos);
-            } else {
-                console.log("Nenhum concurso encontrado para a empresa especificada.");
-            }
-        } else {
-            console.log("Nenhum concurso encontrado.");
-        }
-    } catch (error) {
-        setError('Erro ao carregar os concursos. Por favor, tente novamente.');
-        console.error("Erro ao obter os concursos:", error);
-    } finally {
-        setLoading(false);
-    }
-  }
 
   const publicacoes = async () => {
     const postsRef = ref(db, `company/${id}/publishedPhotos`);
@@ -190,36 +143,10 @@ const fetchSubscriptions = async (companyId) => {
     }
   }
 
-  const fetchPlanos = async () => {
-    const planosRef = ref(db, `planos`);
-    setLoading(true);
-    try {
-      const planosSnapshot = await get(planosRef);
-      const planosData = planosSnapshot.val();
-
-      if (planosData) {
-        const planosArray = Object.keys(planosData).map((key) => ({
-          id: key,
-          ...planosData[key],
-        }));
-        setPlanos(planosArray);
-      } else {
-        console.log("Nenhum plano encontrado.");
-      }
-    } catch (error) {
-      setError('Erro ao carregar os planos. Por favor, tente novamente.');
-      console.error("Erro ao obter os planos:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
   fetchSubscriptions(id)
-  fetchPlanos()
   publicacoes()
-  fetchCotacoes()
   fetchEmpresa()
   fetchCategories()
-  fetchDocuments()
   }, [id]);
 
   
@@ -239,15 +166,6 @@ const fetchSubscriptions = async (companyId) => {
     }
   };
 
-  const handleSubscrever = () => {
-    setShowModal(true); 
-  }
-
-  const handleCloseModal = () => {
-    setShowModal(false); 
-  }
-
-  
   const handleStatusChange = (newStatus) => {
     setStatus(newStatus);
 
@@ -282,7 +200,24 @@ const fetchSubscriptions = async (companyId) => {
     setSnackbarOpen(false);
   };
   
-
+  const handleAccessActionChange = (e) => {
+    const selectedAction = e.target.value;
+    setAccessAction(selectedAction);
+  
+    // Supondo que 'id' seja o identificador único da empresa
+    const accessActionRef = ref(db, `company/${id}/`);
+  
+    // Atualizar a propriedade 'publicPainel' no banco de dados com base na ação selecionada
+    update(accessActionRef, {
+      publicPainel: selectedAction === "grant" ? true : false,  // "grant" dá acesso, "revoke" remove
+    })
+    .then(() => {
+      console.log(`Ação "${selectedAction}" aplicada com sucesso!`);
+    })
+    .catch((error) => {
+      console.error("Erro ao atualizar o banco de dados:", error);
+    });
+  };
 
   const handleCancelarPlano = async (status) => {
     try {
@@ -347,43 +282,61 @@ const fetchSubscriptions = async (companyId) => {
         )
       case 'concursos':
         return <p className="text-gray-500">Aqui você verá os concursos da empresa.</p>;
-        case 'documentos':
+        case 'configuracoes':
           return <div className="text-gray-500">
-          <h2 className="text-lg font-medium mb-2">Documentos Submetidos</h2>
-          {documentLinks.length > 0 ? (
-            <ul className="list-disc pl-5">
-              {documentLinks.map((link, index) => (
-                <li key={index}>
-                  <a
-                    href={link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-500 underline hover:text-blue-700"
-                  >
-                    Documento {index + 1}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>Nenhum documento foi submetido ainda.</p>
-          )}
+      <div className="mb-4">
+        <label className="block text-gray-700 mb-2">Estado:</label>
+        <select
+          className="bg-gray-300 text-black py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          onChange={(e) => handleStatusChange(e.target.value)}
+        >
+          <option value="estado" disabled>Estado</option>
+          <option value="verificado">Verificado</option>
+          <option value="bloqueado">Bloqueado</option>
+          <option value="ativo">Ativo</option>
+        </select>
+      </div>
+
+      {/* Seletor de Setor Público */}
+      <div className="my-4">
+        <label className="block text-gray-700 mb-2">Definir Setor Público:</label>
+        <select
+          id="category"
+          className="w-full p-2 border border-gray-300 rounded-lg"
+          value={selectedSector}
+          onChange={handleSectorChange}
+        >
+          <option value="">Selecione uma categoria</option>
+          {categories.map((cat, index) => (
+            <option key={index} value={cat.name}>
+              {cat.name}
+            </option>
+          ))}
+        </select>
+      </div>
+        <div className="mt-4">
+          <label className="block text-gray-700 mb-2">PAINEL PUBLICO:</label>
+          <select
+            id="action"
+            className="w-full p-2 border border-gray-300 rounded-lg"
+            value={accessAction}
+            onChange={handleAccessActionChange}>
+            <option value="">Selecione uma ação</option>
+            <option value="grant">DAR ACESSO</option>
+            <option value="revoke">REMOVER ACESSO</option>
+          </select>
+        </div>
+      { accessAction && (
+        <div className="mt-4 text-green-600">
+          Você selecionou <strong>{selectedSector}</strong> para <strong>{accessAction === 'grant' ? 'Dar Acesso' : 'Remover Acesso'}</strong>.
+        </div>
+      )}
         </div>;
         case 'modulos':
           return (
             <div>
-            <h2 className="text-xl font-semibold">Módulos Ativos</h2>
-            {userModules && Object.keys(userModules).length > 0 ? (
-              <ul>
-                {Object.keys(userModules).map((moduloKey) => (
-                  <li key={moduloKey} className="py-2">
-                    <strong>{moduloKey}:</strong> {userModules[moduloKey].limit}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-gray-500">Nenhum módulo ativo.</p>
-            )}
+            <h2 className="text-xl font-semibold">Módulos</h2>
+                <ModulosComponent empresa ={empresa} activeModules={userModules || []}/>
           </div>
           );
               case 'publicacoes':
@@ -477,34 +430,8 @@ const fetchSubscriptions = async (companyId) => {
           </div>
           <div>
 
-            <select
-        className="bg-gray-300 text-black py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-        defaultValue="estado"
-        onChange={(e) => handleStatusChange(e.target.value)}
-      >
-        <option value="estado" disabled>Estado</option>
-        <option value="verificado">Verificado</option>
-        <option value="bloqueado">Bloqueado</option>
-        <option value="ativo">Ativo</option>
-      </select>
-            &nbsp;
-            <div className="my-4">
-      <label className="block text-gray-700 mb-2">Definir Setor Público:</label>
-
-      <select
-              id="category"
-              className="w-full p-2 border border-gray-300 rounded-lg"
-              value={selectedSector}
-              onChange={handleSectorChange}>
-              <option value="">Selecione uma categoria</option>
-              {categories.map((cat, index) => (
-                <option key={index} value={cat.name}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
-    </div>          </div>
-        </div>
+           
+    </div>     </div>
 
         <div className="mb-6 p-6">
           <ul className="flex border-b">
@@ -533,9 +460,9 @@ const fetchSubscriptions = async (companyId) => {
                 Publicações
               </button>
             </li>
-            <li className={`mr-6 ${activeTab === 'documentos' ? 'border-b-2 border-black' : ''}`}>
-              <button onClick={() => setActiveTab('documentos')} className="text-gray-800 font-semibold">
-                Documentos
+            <li className={`mr-6 ${activeTab === 'configuracoes' ? 'border-b-2 border-black' : ''}`}>
+              <button onClick={() => setActiveTab('configuracoes')} className="text-gray-800 font-semibold">
+                Configuracoes
               </button>
             </li>
             

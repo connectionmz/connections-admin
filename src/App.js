@@ -19,6 +19,7 @@ import Cotacoes from './components/roles/Cotacoes';
 import RevenueReport from './components/RevenueReport';
 import Parceiros from './components/Parceiros';
 import DashboardSectorPublico from './components/DashboardSectorPublico';
+import Validacoes from './components/Validacoes';
 
 // Componente de rota privada
 function PrivateRoute({ children, allowedRoles }) {
@@ -88,6 +89,7 @@ const SidebarLink = ({ to, label }) => (
 const Sidebar = () => {
   const menuItems = [
     { to: "/empresas", label: "Empresas", roles: ["admin", "gestor de empresas"] },
+    { to: "/validar", label: "Validacoes", roles: ["admin", "gestor de empresas"] },
     { to: "/publicidades", label: "Publicidades", roles: ["admin", "gestor de cotações"] },
     { to: "/servicos", label: "Serviços Externos", roles: ["admin", "gestor de serviços"] },
     { to: "/anuncios", label: "Anúncios", roles: ["admin", "contabilista"] },
@@ -126,11 +128,12 @@ function App() {
               path="/"
               element={
                 <PrivateRoute allowedRoles={['admin', 'contabilista']}>
-                  <RevenueReport data={mockData.BpOFEMyyTjWfQBAgfKICVOQJjpV2} />
+                  <Dashboard/>
                 </PrivateRoute>
               }
             />
             <Route path="/empresas" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Empresas /></PrivateRoute>} />
+            <Route path="/validar" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Validacoes /></PrivateRoute>} />
             <Route path="/publico" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><DashboardSectorPublico /></PrivateRoute>} />
             <Route path="/publicidades" element={<PrivateRoute allowedRoles={['admin', 'gestor de cotações']}><Publicidade /></PrivateRoute>} />
             <Route path="/servicos" element={<PrivateRoute allowedRoles={['admin', 'gestor de serviços']}><ServicoxExternos /></PrivateRoute>} />
