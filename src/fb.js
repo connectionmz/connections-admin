@@ -4,14 +4,14 @@ import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDdWDE9sGuIBBfVrdpiUuoaKJEDviDmSaQ",
-  authDomain: "connectiopos.firebaseapp.com",
-  databaseURL: "https://connectiopos-default-rtdb.firebaseio.com",
-  projectId: "connectiopos",
-  storageBucket: "connectiopos.appspot.com",
-  messagingSenderId: "1083339114910",
-  appId: "1:1083339114910:web:3b2188a57862888ddb6e8f",
-  measurementId: "G-8GTHHH8VKN"
+  apiKey: "AIzaSyChEniFx32nBnrcOvditSwLTglTBPTCWVQ",
+  authDomain: "connections-d1be1.firebaseapp.com",
+  databaseURL: "https://connections-d1be1-default-rtdb.firebaseio.com",
+  projectId: "connections-d1be1",
+  storageBucket: "connections-d1be1.appspot.com",
+  messagingSenderId: "89340878669",
+  appId: "1:89340878669:web:83a91ab3aab71257c66104",
+  measurementId: "G-HZRYF1DR6N"
 };
 
 const app = initializeApp(firebaseConfig);
