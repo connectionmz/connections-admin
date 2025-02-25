@@ -8,7 +8,7 @@ const sendEmail = async (to, companyName) => {
 
     Sua conta foi ativada com sucesso! Agora você pode acessar todos os recursos da nossa plataforma.
 
-    Para começar, acesse: https://app.connectionmozambique.com
+    Para começar, acesse: https://app.connectionmozambique.com/auth
 
     Caso tenha alguma dúvida ou precise de suporte, entre em contato connosco.
 
