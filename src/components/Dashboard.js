@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Line, Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend } from 'chart.js';
+import { ref, onValue } from 'firebase/database';
+import { db } from '../fb'; // Importe a configuração do Firebase
 
 // Registrando os componentes do Chart.js
 ChartJS.register(
@@ -15,48 +17,43 @@ ChartJS.register(
 );
 
 const Dashboard = () => {
-
-  // Dados para os gráficos
-  const salesData = {
+  const [salesData, setSalesData] = useState({
     labels: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'],
     datasets: [
       {
         label: 'Vendas Mensais',
-        data: [500, 600, 700, 800, 750, 900],
+        data: [5000, 7000, 8000, 12000, 15000, 18000],
         borderColor: '#4CAF50',
         backgroundColor: 'rgba(76, 175, 80, 0.2)',
         fill: true,
         tension: 0.4,
       },
     ],
-  };
+  });
 
-  const funnelData = {
+  const [funnelData, setFunnelData] = useState({
     labels: ['Leads', 'Contato', 'Propostas', 'Fechamento'],
     datasets: [
       {
         label: 'Sales Funnel',
-        data: [1000, 800, 500, 300],
+        data: [100, 80, 50, 30],
         backgroundColor: ['#FF0000', '#FF7F00', '#FFC107', '#4CAF50'],
         borderColor: ['#FF0000', '#FF7F00', '#FFC107', '#4CAF50'],
         borderWidth: 1,
       },
     ],
-  };
+  });
 
-  // Componentes de Resumo
-  const summary = [
-    { title: 'Pagamentos de planos', value: '$16.4K', bgColor: 'bg-black', textColor: 'text-white' },
-    { title: 'Pagamentos de Publicidades', value: '$6.4K', bgColor: 'bg-gray-100', textColor: 'text-gray-800' },
-    { title: 'Empresas Cadastradas', value: '400', bgColor: 'bg-gray-100', textColor: 'text-gray-800' },
-  ];
+  const [summary, setSummary] = useState([
+    { title: 'Pagamentos de planos', value: '$12,000', bgColor: 'bg-black', textColor: 'text-white' },
+    { title: 'Pagamentos de Publicidades', value: '$5,000', bgColor: 'bg-gray-100', textColor: 'text-gray-800' },
+    { title: 'Empresas Cadastradas', value: '120', bgColor: 'bg-gray-100', textColor: 'text-gray-800' },
+  ]);
 
   return (
     <>
-      {/* Conteúdo Principal */}
       <div className="flex-1 p-6">
         <div className="max-w-screen-xl mx-auto bg-white rounded-xl p-8 shadow-lg">
-          {/* Título e botão de exportação */}
           <div className="flex justify-between items-center mb-6">
             <div>
               <h1 className="text-2xl font-bold text-gray-800">Estatísticas Gerais</h1>
@@ -69,7 +66,6 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Resumo financeiro */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             {summary.map((item, index) => (
               <div key={index} className={`${item.bgColor} ${item.textColor} p-6 rounded-lg`}>
@@ -79,21 +75,18 @@ const Dashboard = () => {
             ))}
           </div>
 
-          {/* Gráfico de Vendas Mensais */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div className="bg-gray-100 p-6 rounded-lg">
               <h2 className="text-xl font-semibold mb-4">Vendas Mensais</h2>
               <Line data={salesData} options={{ responsive: true, plugins: { title: { display: true, text: 'Vendas por Mês' } } }} />
             </div>
 
-            {/* Gráfico do Funil de Vendas */}
             <div className="bg-gray-100 p-6 rounded-lg">
               <h2 className="text-xl font-semibold mb-4">Funil de Vendas</h2>
               <Bar data={funnelData} options={{ responsive: true, plugins: { title: { display: true, text: 'Funil de Vendas' } } }} />
             </div>
           </div>
 
-          {/* Estatísticas Adicionais */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="bg-gray-400 p-4 rounded-lg">3 Cotações</div>
             <div className="bg-green-500 p-4 rounded-lg">15 Publicidades</div>
@@ -101,7 +94,6 @@ const Dashboard = () => {
             <div className="bg-gray-400 p-4 rounded-lg">WhatsApp</div>
           </div>
 
-          {/* Card adicional de informações */}
           <div className="bg-gray-100 p-6 rounded-lg">
             <h2 className="text-xl font-semibold mb-4">Total de Transações</h2>
             <p className="text-3xl font-bold">$35.0K</p>

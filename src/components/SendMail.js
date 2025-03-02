@@ -1,26 +1,47 @@
 import axios from 'axios';
 
-const sendEmail = async (to, companyName) => {
-  const subject = 'Ativação de Conta';
+const sendEmail = async (to, companyName, action, motivo = "", nota = "") => {
+  let subject, textContent;
 
-  const textContent = `
-    Olá ${companyName},
+  if (action === "validar") {
+    subject = 'Ativação de Conta';
+    textContent = `
+      Olá ${companyName},
 
-    Sua conta foi ativada com sucesso! Agora você pode acessar todos os recursos da nossa plataforma.
+      Sua conta foi ativada com sucesso! Agora você pode acessar todos os recursos da nossa plataforma.
 
-    Para começar, acesse: https://app.connectionmozambique.com/auth
+      Para começar, acesse: https://app.connectionmozambique.com/auth
 
-    Caso tenha alguma dúvida ou precise de suporte, entre em contato connosco.
+      Caso tenha alguma dúvida ou precise de suporte, entre em contato connosco.
 
-    Atenciosamente,
-    Equipe de Suporte
-    suporte@connectionmozambique.com
-  `;
+      Atenciosamente,
+      Equipe de Suporte
+      suporte@connectionmozambique.com
+    `;
+  } else if (action === "invalidar") {
+    subject = 'Conta Invalidada';
+    textContent = `
+      Olá ${companyName},
+
+      Infelizmente, sua conta foi invalidada pelos seguintes motivos:
+      - Motivo: ${motivo}
+      - Nota: ${nota}
+
+      Caso acredite que isso seja um erro ou precise de mais informações, entre em contato connosco.
+
+      Atenciosamente,
+      Equipe de Suporte
+      suporte@connectionmozambique.com
+    `;
+  } else {
+    console.error("Ação inválida. Use 'validar' ou 'invalidar'.");
+    return false;
+  }
 
   const emailData = {
     to,
     subject,
-    text: textContent, 
+    text: textContent,
   };
 
   try {

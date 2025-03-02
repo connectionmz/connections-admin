@@ -1,10 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import {
-  getDatabase,
-  ref,
-  onValue,
-  update,
-} from "firebase/database";
+import { getDatabase, ref, onValue, update } from "firebase/database";
 import sendEmail from "./SendMail";
 
 const Validacoes = () => {
@@ -13,10 +8,12 @@ const Validacoes = () => {
   const [selectedEmpresa, setSelectedEmpresa] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true); // Indicador de carregamento
-  const [error, setError] = useState(null); // Estado para mensagens de erro
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [invalidateDialogOpen, setInvalidateDialogOpen] = useState(false);
+  const [invalidateReason, setInvalidateReason] = useState("");
+  const [invalidateNote, setInvalidateNote] = useState("");
 
-  // Função para buscar empresas do Firebase
   const fetchEmpresas = useCallback(() => {
     const db = getDatabase();
     const empresasRef = ref(db, "company");
@@ -33,12 +30,11 @@ const Validacoes = () => {
           setEmpresas(empresasList);
           setFilteredEmpresas(
             empresasList.filter(
-              (empresa) =>
-                empresa?.subscriptions?.isverify === "false"
+              (empresa) => empresa?.subscriptions?.isverify === "false"
             )
           );
         }
-        setLoading(false); // Finaliza o carregamento
+        setLoading(false);
       },
       (error) => {
         setError("Erro ao carregar as empresas.");
@@ -52,16 +48,12 @@ const Validacoes = () => {
     fetchEmpresas();
   }, [fetchEmpresas]);
 
-  // Função para validar uma empresa
   const handleValidar = async () => {
     if (!selectedEmpresa) return;
 
     try {
       const db = getDatabase();
-      const empresaRef = ref(
-        db,
-        `company/${selectedEmpresa.id}/subscriptions`
-      );
+      const empresaRef = ref(db, `company/${selectedEmpresa.id}/subscriptions`);
 
       await update(empresaRef, {
         isverify: "true",
@@ -77,13 +69,49 @@ const Validacoes = () => {
       setSelectedEmpresa(null);
 
       setFilteredEmpresas(
-        filteredEmpresas.filter(
-          (empresa) => empresa.id !== selectedEmpresa.id
-        )
+        filteredEmpresas.filter((empresa) => empresa.id !== selectedEmpresa.id)
       );
     } catch (error) {
       setError("Erro ao validar a empresa.");
       console.error("Erro ao validar empresa:", error);
+    }
+  };
+
+  const handleInvalidar = async () => {
+    if (!selectedEmpresa || !invalidateReason) return;
+
+    try {
+      const db = getDatabase();
+      const empresaRef = ref(db, `company/${selectedEmpresa.id}/subscriptions`);
+
+      await update(empresaRef, {
+        isverify: "invalidado",
+        motivoInvalidacao: invalidateReason,
+        notaInvalidacao: invalidateNote,
+        invalidadoPor: "Admin",
+        dataInvalidacao: new Date().toISOString(),
+      });
+
+      alert("Empresa invalidada com sucesso!");
+
+      // Enviar email com o motivo e a nota
+      sendEmail(
+        selectedEmpresa.email,
+        `Sua empresa foi invalidada. Motivo: ${invalidateReason}. Nota: ${invalidateNote}`
+      );
+
+      setInvalidateDialogOpen(false);
+      setDialogOpen(false);
+      setSelectedEmpresa(null);
+      setInvalidateReason("");
+      setInvalidateNote("");
+
+      setFilteredEmpresas(
+        filteredEmpresas.filter((empresa) => empresa.id !== selectedEmpresa.id)
+      );
+    } catch (error) {
+      setError("Erro ao invalidar a empresa.");
+      console.error("Erro ao invalidar empresa:", error);
     }
   };
 
@@ -92,7 +120,6 @@ const Validacoes = () => {
     setDialogOpen(true);
   };
 
-  // Função para ligar para o número de telefone
   const handleLigar = () => {
     if (selectedEmpresa?.contacto) {
       window.open(`tel:${selectedEmpresa.contacto}`, "_self");
@@ -101,38 +128,29 @@ const Validacoes = () => {
     }
   };
 
-  // Função para filtrar empresas com base no termo de pesquisa
   const handleSearchChange = (e) => {
     const term = e.target.value.toLowerCase();
     setSearchTerm(term);
 
     if (term.trim() === "") {
       setFilteredEmpresas(
-        empresas.filter(
-          (empresa) =>
-            empresa?.subscriptions?.isverify === "false"
-        )
+        empresas.filter((empresa) => empresa?.subscriptions?.isverify === "false")
       );
     } else {
       setFilteredEmpresas(
         empresas.filter(
           (empresa) =>
             empresa.nome.toLowerCase().includes(term) ||
-            (empresa.sigla &&
-              empresa.sigla.toLowerCase().includes(term))
+            (empresa.sigla && empresa.sigla.toLowerCase().includes(term))
         )
       );
     }
   };
 
-  // Função para limpar o campo de pesquisa
   const handleClearSearch = () => {
     setSearchTerm("");
     setFilteredEmpresas(
-      empresas.filter(
-        (empresa) =>
-          empresa?.subscriptions?.isverify === "false"
-      )
+      empresas.filter((empresa) => empresa?.subscriptions?.isverify === "false")
     );
   };
 
@@ -206,12 +224,10 @@ const Validacoes = () => {
           aria-labelledby="modal-title"
         >
           <div className="bg-white w-full max-w-md rounded shadow-lg p-6">
-            <h2
-              id="modal-title"
-              className="text-xl font-bold mb-4"
-            >
+            <h2 id="modal-title" className="text-xl font-bold mb-4">
               {selectedEmpresa.nome}
             </h2>
+            <p className="text-gray-700 mb-2">Email: {selectedEmpresa.email || "Não disponível"}</p>
             <p className="text-gray-700 mb-2">Telefone: {selectedEmpresa.contacto || "Não disponível"}</p>
             <p className="text-gray-700 mb-2">Nuit: {selectedEmpresa.nuit || "Não disponível"}</p>
             <p className="text-gray-700 mb-2">Nuel: {selectedEmpresa.nuel || "Não disponível"}</p>
@@ -238,6 +254,13 @@ const Validacoes = () => {
                 Ligar
               </button>
               <button
+                onClick={() => setInvalidateDialogOpen(true)}
+                className="bg-red-500 text-white px-4 py-2 rounded shadow hover:bg-red-600"
+                aria-label="Invalidar empresa"
+              >
+                Invalidar
+              </button>
+              <button
                 onClick={handleValidar}
                 className="bg-green-500 text-white px-4 py-2 rounded shadow hover:bg-green-600"
                 aria-label="Validar empresa"
@@ -250,6 +273,61 @@ const Validacoes = () => {
                 aria-label="Fechar modal"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Invalidar Empresa */}
+      {invalidateDialogOpen && (
+        <div
+          className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="invalidate-modal-title"
+        >
+          <div className="bg-white w-full max-w-md rounded shadow-lg p-6">
+            <h2 id="invalidate-modal-title" className="text-xl font-bold mb-4">
+              Invalidar Empresa
+            </h2>
+            <div className="mb-4">
+              <label className="block text-gray-700 mb-2">Motivo da Invalidação:</label>
+              <select
+                className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+                value={invalidateReason}
+                onChange={(e) => setInvalidateReason(e.target.value)}
+              >
+                <option value="">Selecione um motivo</option>
+                <option value="Dados da empresa inválidos">Dados da empresa inválidos</option>
+                <option value="Empresa inexistente">Empresa inexistente</option>
+                <option value="Outro">Outro</option>
+              </select>
+            </div>
+            <div className="mb-4">
+              <label className="block text-gray-700 mb-2">Nota:</label>
+              <textarea
+                className="w-full p-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+                rows="3"
+                value={invalidateNote}
+                onChange={(e) => setInvalidateNote(e.target.value)}
+                placeholder="Adicione uma nota..."
+              />
+            </div>
+            <div className="flex justify-between mt-4">
+              <button
+                onClick={handleInvalidar}
+                className="bg-red-500 text-white px-4 py-2 rounded shadow hover:bg-red-600"
+                aria-label="Confirmar invalidação"
+              >
+                Confirmar
+              </button>
+              <button
+                onClick={() => setInvalidateDialogOpen(false)}
+                className="bg-gray-300 text-gray-700 px-4 py-2 rounded shadow hover:bg-gray-400"
+                aria-label="Cancelar invalidação"
+              >
+                Cancelar
               </button>
             </div>
           </div>
