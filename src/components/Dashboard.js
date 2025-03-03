@@ -4,7 +4,6 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import { ref, onValue } from 'firebase/database';
 import { db } from '../fb'; // Importe a configuração do Firebase
 
-// Registrando os componentes do Chart.js
 ChartJS.register(
   CategoryScale,
   LinearScale,

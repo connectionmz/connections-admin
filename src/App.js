@@ -1,9 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import './App.css';
 import { useState, useEffect } from 'react';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
-import { db } from './fb';
+import { auth, db } from './fb';
 
 import Dashboard from './components/Dashboard';
 import Empresas from './components/Empresas';
@@ -20,31 +20,43 @@ import RevenueReport from './components/RevenueReport';
 import Parceiros from './components/Parceiros';
 import DashboardSectorPublico from './components/DashboardSectorPublico';
 import Validacoes from './components/Validacoes';
+import CadastroEmpresa from './components/CadastroEmpresa';
+import { getUserData } from './components/utils/utils';
 
 // Componente de rota privada
 function PrivateRoute({ children, allowedRoles }) {
-  const auth = getAuth();
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUser(user);
-        try {
-          const snapshot = await get(ref(db, `utilizadores/${user.uid}`));
-          setRole(snapshot.exists() ? snapshot.val().role : null);
-        } catch (error) {
-          console.error('Erro ao buscar o papel do usuário:', error);
-        }
-      } else {
-        setUser(null);
-        setRole(null);
-      }
+    const userData = getUserData();
+
+    console.log(userData)
+    
+    if (userData) {
+      setUser(userData);
+      setRole(userData.role);
       setLoading(false);
-    });
-    return () => unsubscribe();
+    } else {
+      const auth = getAuth();
+      const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        if (firebaseUser) {
+          setUser(firebaseUser);
+          try {
+            const snapshot = await get(ref(db, `utilizadores/${firebaseUser.uid}`));
+            setRole(snapshot.exists() ? snapshot.val().role : null);
+          } catch (error) {
+            console.error('Erro ao buscar o papel do usuário:', error);
+          }
+        } else {
+          setUser(null);
+          setRole(null);
+        }
+        setLoading(false);
+      });
+      return () => unsubscribe();
+    }
   }, []);
 
   if (loading) return <LoadingScreen />;
@@ -54,42 +66,42 @@ function PrivateRoute({ children, allowedRoles }) {
   return children;
 }
 
-// Componente de tela de carregamento
+const clearUserData = () => {
+  sessionStorage.removeItem('user');
+};
+
+const handleLogout = async () => {
+  try {
+    await signOut(auth);
+
+    clearUserData();
+
+    window.location.href = '/login'; 
+  } catch (error) {
+    console.error('Erro ao fazer logout:', error);
+    alert('Ocorreu um erro ao tentar sair.');
+  }
+};
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
     <div className="text-xl font-semibold text-gray-700">Carregando...</div>
   </div>
 );
 
-// Dados mockados para relatório
-const mockData = {
-  BpOFEMyyTjWfQBAgfKICVOQJjpV2: {
-    "2024": {
-      "12": {
-        "-ODjRpR7qkKwrO1q8_az": { amount: 700, method: "EMOLA" },
-        "-ODjYel5BZaBey1q-49m": { amount: 700, method: "MPESA" },
-        "-ODjlur3HoRrRvfPHNvi": { amount: 1000, method: "MPESA" },
-      },
-    },
-  },
-};
-
-// Componentes reutilizáveis
 const SidebarLink = ({ to, label }) => (
   <li>
-    <Link
-      to={to}
-      className="block p-3 rounded-lg text-lg font-medium bg-gray-800 hover:bg-gray-700 transition"
-    >
+    <Link to={to} className="block p-3 rounded-lg text-lg font-medium bg-gray-800 hover:bg-gray-700 transition">
       {label}
     </Link>
+
   </li>
 );
 
 const Sidebar = () => {
   const menuItems = [
     { to: "/empresas", label: "Empresas", roles: ["admin", "gestor de empresas"] },
-    { to: "/validar", label: "Validacoes", roles: ["admin", "gestor de empresas"] },
+    { to: "/CadastroEmpresa", label: "Cadastrar Empresa", roles: ["admin", "gestor de empresas"] },
+    { to: "/validar", label: "Validações", roles: ["admin", "gestor de empresas"] },
     { to: "/publicidades", label: "Publicidades", roles: ["admin", "gestor de cotações"] },
     { to: "/servicos", label: "Serviços Externos", roles: ["admin", "gestor de serviços"] },
     { to: "/anuncios", label: "Anúncios", roles: ["admin", "contabilista"] },
@@ -97,8 +109,8 @@ const Sidebar = () => {
     { to: "/usuarios", label: "Usuários", roles: ["admin"] },
     { to: "/cotacoes", label: "Cotações", roles: ["admin", "gestor de cotações"] },
     { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
-    { to: "/publico", label: "Sector Publico", roles: ["admin"] },
-    { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin", "gestor de empresas"] },
+    { to: "/publico", label: "Setor Público", roles: ["admin"] },
+    { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin"] },
   ];
 
   return (
@@ -111,6 +123,12 @@ const Sidebar = () => {
           {menuItems.map((item) => (
             <SidebarLink key={item.to} to={item.to} label={item.label} />
           ))}
+              <Link
+        onClick={handleLogout}
+        className="block p-3 rounded-lg text-lg font-medium bg-red-800 text-white hover:bg-gray-700 transition mt-4"
+      >
+        SAIR
+      </Link>
         </ul>
       </nav>
     </aside>
@@ -124,17 +142,11 @@ function App() {
         <Sidebar />
         <main className="flex-1 p-8">
           <Routes>
-            <Route
-              path="/"
-              element={
-                <PrivateRoute allowedRoles={['admin', 'contabilista']}>
-                  <Dashboard/>
-                </PrivateRoute>
-              }
-            />
+            <Route path="/" element={<PrivateRoute allowedRoles={['admin', 'contabilista']}><Dashboard /></PrivateRoute>} />
             <Route path="/empresas" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Empresas /></PrivateRoute>} />
             <Route path="/validar" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Validacoes /></PrivateRoute>} />
-            <Route path="/publico" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><DashboardSectorPublico /></PrivateRoute>} />
+            <Route path="/publico" element={<PrivateRoute allowedRoles={['admin']}><DashboardSectorPublico /></PrivateRoute>} />
+            <Route path="/CadastroEmpresa" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><CadastroEmpresa /></PrivateRoute>} />
             <Route path="/publicidades" element={<PrivateRoute allowedRoles={['admin', 'gestor de cotações']}><Publicidade /></PrivateRoute>} />
             <Route path="/servicos" element={<PrivateRoute allowedRoles={['admin', 'gestor de serviços']}><ServicoxExternos /></PrivateRoute>} />
             <Route path="/anuncios" element={<PrivateRoute allowedRoles={['admin', 'contabilista']}><Anuncios /></PrivateRoute>} />

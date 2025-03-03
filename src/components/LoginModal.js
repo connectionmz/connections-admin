@@ -16,30 +16,34 @@ const LoginModal = () => {
       setError('Preencha todos os campos.');
       return;
     }
-
+  
     const auth = getAuth();
     setLoading(true);
     setError(null);
-
+  
     try {
       // Autenticar o utilizador
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const { user } = userCredential;
-      console.log(user.uid)
-
+  
       // Obter o role do utilizador no Realtime Database
       const snapshot = await get(ref(db, `utilizadores/${user.uid}`));
       if (snapshot.exists()) {
         const data = snapshot.val();
-
-        console.log(data)
         const userRole = data.role;
-
-        // Salvar o role no localStorage ou estado global (se necessário)
-        localStorage.setItem('userRole', userRole);
+  
+        // Criar um objeto com os dados do utilizador
+        const userData = {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || '',
+          role: userRole
+        };
+  
+        // Armazenar os dados do utilizador no sessionStorage
+        sessionStorage.setItem('user', JSON.stringify(userData));
+  
         navigate('/'); // Página padrão para outros roles
-
-      
       } else {
         setError('Role do utilizador não encontrado.');
         console.error('Role não encontrado no banco de dados.');
@@ -51,7 +55,7 @@ const LoginModal = () => {
       setLoading(false);
     }
   };
-
+  
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       handleLogin();

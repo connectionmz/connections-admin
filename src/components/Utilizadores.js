@@ -20,6 +20,7 @@ const Utilizadores = () => {
     'gestor de cotações',
     'gestor de concursos',
     'gestor de empresas',
+    'cadastrador',
   ];
 
   useEffect(() => {
@@ -35,7 +36,6 @@ const Utilizadores = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     try {
-      const email = generateDefaultEmail(name); 
       const password = '@connection';
   
       // Criar utilizador na Firebase Authentication
@@ -147,20 +147,17 @@ const Utilizadores = () => {
       <div className="flex border-b mb-6">
         <button
           className={`px-4 py-2 text-lg font-semibold ${activeTab === 'register' ? 'border-b-2 border-blue-500 text-blue-500' : 'text-gray-500 hover:text-gray-700'}`}
-          onClick={() => setActiveTab('register')}
-        >
+          onClick={() => setActiveTab('register')}>
           Cadastrar Utilizadores
         </button>
         <button
           className={`px-4 py-2 text-lg font-semibold ${activeTab === 'list' ? 'border-b-2 border-blue-500 text-blue-500' : 'text-gray-500 hover:text-gray-700'}`}
-          onClick={() => setActiveTab('list')}
-        >
+          onClick={() => setActiveTab('list')}>
           Listar Utilizadores
         </button>
         <button
           className={`px-4 py-2 text-lg font-semibold ${activeTab === 'roles' ? 'border-b-2 border-blue-500 text-blue-500' : 'text-gray-500 hover:text-gray-700'}`}
-          onClick={() => setActiveTab('roles')}
-        >
+          onClick={() => setActiveTab('roles')}>
           Gerir Roles
         </button>
       </div>
@@ -175,8 +172,7 @@ const Utilizadores = () => {
               onChange={(e) => setName(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md"
               placeholder="Nome do utilizador"
-              required
-            />
+              required/>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Email</label>
@@ -186,8 +182,7 @@ const Utilizadores = () => {
               onChange={(e) => setEmail(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md"
               placeholder="Email do utilizador"
-              required
-            />
+              required/>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Função</label>
@@ -195,8 +190,7 @@ const Utilizadores = () => {
               value={role}
               onChange={(e) => setRole(e.target.value)}
               className="mt-1 block w-full p-2 border border-gray-300 rounded-md"
-              required
-            >
+              required>
               <option value="" disabled>Selecione uma função</option>
               {roles.map((role, index) => (
                 <option key={index} value={role}>{role}</option>

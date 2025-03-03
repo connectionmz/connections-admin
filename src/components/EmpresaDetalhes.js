@@ -270,6 +270,7 @@ const fetchCotacoes = async () => {
                                   <strong>Bio:</strong> {empresa.bio || 'Não disponível'}<br />
                                   <strong>Email:</strong> {empresa.email || 'Não disponível'}<br />
                                   <strong>Palavra-passe:</strong> {empresa.password || 'Não disponível'}<br />
+                                  <strong>Referencia:</strong> {empresa?.referer?.email || 'Não disponível'}<br />
                                   <div dangerouslySetInnerHTML={{ __html: empresa.missaoVisaoValores }} />                              </p>
                           </div>
                       </div>                    
