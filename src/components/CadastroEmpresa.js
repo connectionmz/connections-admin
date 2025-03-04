@@ -86,15 +86,8 @@ const CadastroEmpresa = () => {
     e.preventDefault()
     setIsLoading(true)
     try {
-      // Verifica se o email já está em uso
-      const methods = await fetchSignInMethodsForEmail(auth, companyData.email);
-      if (methods.length > 0) {
-        setErrorMessage("Este email já está em uso. Por favor, use outro email.");
-        setIsLoading(false);
-        return;
-      }
-  
-      // Se o email não estiver em uso, cria a conta
+    
+   // Se o email não estiver em uso, cria a conta
       const result = await createUserWithEmailAndPassword(auth, companyData.email, companyData.password);
       await handleSubmit(result.user); // Salva os dados da empresa no Realtime Database
     } catch (error) {
