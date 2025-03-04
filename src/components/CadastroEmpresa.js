@@ -207,9 +207,10 @@ const CadastroEmpresa = () => {
         snapshot.forEach((child) => {
           const data = child.val();
           if (data.nome === companyData.nome) camposDuplicados.push("Nome da Empresa");
-          if (data.nuel === companyData.nuel) camposDuplicados.push("NUEL");
+         {/*
+           if (data.nuel === companyData.nuel) camposDuplicados.push("NUEL");
           if (data.nuit === companyData.nuit) camposDuplicados.push("NUIT");
-          if (data.nrContriuinte === companyData.nrContriuinte) camposDuplicados.push("Número de Contribuinte");
+          if (data.nrContriuinte === companyData.nrContriuinte) camposDuplicados.push("Número de Contribuinte");*/}
           if (data.contacto === companyData.contacto) camposDuplicados.push("Contacto");
         });
 
@@ -488,5 +489,4 @@ const CadastroEmpresa = () => {
     </div>
   );
 }
-
 export default CadastroEmpresa;
