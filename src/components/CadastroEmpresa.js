@@ -154,7 +154,7 @@ const CadastroEmpresa = () => {
       companySnapshot.forEach((child) => {
         const data = child.val();
         if (data.nome === companyData.nome) camposDuplicados.push("Nome da Empresa");
-        if (data.contacto === companyData.contacto) camposDuplicados.push("Contacto");
+       
       });
   
       if (camposDuplicados.length > 0) {
@@ -166,7 +166,6 @@ const CadastroEmpresa = () => {
         return;
       }
   
-      // Prepara os dados da empresa para salvar
       const dataToSave = {
         ...companyData,
         id: user.uid,
@@ -179,12 +178,11 @@ const CadastroEmpresa = () => {
         createdAt: new Date().toISOString(),
       };
   
-      // Salva os dados no Realtime Database
       await set(ref(db, `company/${user.uid}`), dataToSave);
   
       alert("Empresa cadastrada com sucesso!");
-      window.location.href = "/dashboard";
-    } catch (error) {
+      window.location.reload();
+        } catch (error) {
       setErrorMessage("Ocorreu um erro ao salvar os dados. Tente novamente.");
       console.error("Erro no handleSubmit:", error);
     } finally {
