@@ -2,15 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, onValue, ref, set } from 'firebase/database';
 import { auth, db } from '../fb';
-import { createUserWithEmailAndPassword, fetchSignInMethodsForEmail, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, fetchSignInMethodsForEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { getUserData } from './utils/utils';
 
 const steps = ['Informações Básicas', 'Endereço & Contacto', 'Setor & Capacidade', 'Email & Senha'];
 
 const CadastroEmpresa = () => {
-
   const userData = getUserData();
-
   const navigate = useNavigate();
   const [activeStep, setActiveStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -23,7 +21,7 @@ const CadastroEmpresa = () => {
   const [subtiposEntidade, setSubtiposEntidade] = useState([]);
 
   const generatePassword = () => {
-    return Math.random().toString(36).slice(-6); 
+    return Math.random().toString(36).slice(-6);
   };
 
   const [companyData, setCompanyData] = useState({
@@ -44,10 +42,10 @@ const CadastroEmpresa = () => {
     subtipoEntidade: '',
     capacidadeProducao: '',
     email: '',
-    password: generatePassword(), 
-    referer:{
-      id:userData.uid,
-      email:userData.email
+    password: generatePassword(),
+    referer: {
+      id: userData?.uid,
+      email: userData?.email
     }
   });
 
@@ -69,6 +67,7 @@ const CadastroEmpresa = () => {
     onValue(tipoEntidadeRef, (snapshot) => setTiposEntidades(snapshot.val() || []));
   }, []);
 
+
   const getFirebaseErrorMessage = (errorCode) => {
     switch (errorCode) {
       case 'auth/email-already-in-use':
@@ -80,16 +79,57 @@ const CadastroEmpresa = () => {
       default:
         return 'Ocorreu um erro ao cadastrar. Tente novamente.';
     }
-  }
+  };
 
   const handleEmailSignIn = async (e) => {
-    e.preventDefault()
-    setIsLoading(true)
+    e.preventDefault();
+    setIsLoading(true);
+    setErrorMessage('');
+
     try {
-    
-   // Se o email não estiver em uso, cria a conta
-      const result = await createUserWithEmailAndPassword(auth, companyData.email, companyData.password);
-      await handleSubmit(result.user); // Salva os dados da empresa no Realtime Database
+      // Verifica se o email já está em uso no Firebase Authentication
+      const methods = await fetchSignInMethodsForEmail(auth, companyData.email);
+      let userId = null;
+      if (methods.length > 0) {
+        // Verifica se o email já está cadastrado na coleção "company"
+        const companySnapshot = await get(ref(db, 'company'));
+        let empresaExistente = false;
+  
+        companySnapshot.forEach((child) => {
+          const data = child.val();
+          if (data.email === companyData.email) {
+            empresaExistente = true;
+            userId = child.key; // Obtém o ID do usuário existente
+          }
+        });
+  
+        if (empresaExistente) {
+          // Se a empresa já está registrada, bloqueia o cadastro
+          setErrorMessage("Esta empresa já está registrada.");
+          setIsLoading(false);
+          return;
+        } else {
+          // Se o email está em uso no Firebase Authentication, mas não na coleção "company",
+          // permite que o cadastro continue usando o usuário existente.
+          const user = auth.currentUser; // Obtém o usuário atual (se já estiver logado)
+          if (user && user.email === companyData.email) {
+            userId = user.uid; // Usa o UID do usuário logado
+          } else {
+            // Se não estiver logado, busca o UID do usuário pelo email
+            const userRecord = await auth.getUserByEmail(companyData.email);
+            userId = userRecord.uid;
+          }
+        }
+      }
+  
+      // Se o email não está em uso no Firebase Authentication, cria um novo usuário
+      const userCredential =
+        methods.length === 0
+          ? await createUserWithEmailAndPassword(auth, companyData.email, companyData.password)
+          : { user: { uid: userId } };
+  
+      // Salva os dados da empresa no Realtime Database
+      await handleSubmit(userCredential.user);
     } catch (error) {
       const userFriendlyMessage = getFirebaseErrorMessage(error.code);
       setErrorMessage(userFriendlyMessage);
@@ -97,7 +137,60 @@ const CadastroEmpresa = () => {
       setIsLoading(false);
     }
   };
-
+  
+  const handleSubmit = async (user) => {
+    setIsLoading(true);
+    setErrorMessage('');
+  
+    try {
+      if (!user || !user.uid) {
+        throw new Error("ID do usuário inválido.");
+      }
+  
+      // Verifica se já existe uma empresa com o mesmo nome ou contacto
+      const companySnapshot = await get(ref(db, 'company'));
+      let camposDuplicados = [];
+  
+      companySnapshot.forEach((child) => {
+        const data = child.val();
+        if (data.nome === companyData.nome) camposDuplicados.push("Nome da Empresa");
+        if (data.contacto === companyData.contacto) camposDuplicados.push("Contacto");
+      });
+  
+      if (camposDuplicados.length > 0) {
+        setErrorMessage(
+          `Os seguintes dados já estão cadastrados: ${camposDuplicados.join(", ")}. ` +
+          `Se você é o proprietário, contacte suporte@connectionmozambique.com.`
+        );
+        setIsLoading(false);
+        return;
+      }
+  
+      // Prepara os dados da empresa para salvar
+      const dataToSave = {
+        ...companyData,
+        id: user.uid,
+        email: user.email,
+        logoUrl: null,
+        subscriptions: {
+          status: "active",
+          isverify: false, // Corrigido para booleano
+        },
+        createdAt: new Date().toISOString(),
+      };
+  
+      // Salva os dados no Realtime Database
+      await set(ref(db, `company/${user.uid}`), dataToSave);
+  
+      alert("Empresa cadastrada com sucesso!");
+      window.location.href = "/dashboard";
+    } catch (error) {
+      setErrorMessage("Ocorreu um erro ao salvar os dados. Tente novamente.");
+      console.error("Erro no handleSubmit:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
   const handleProvinceChange = (e) => {
     const selectedProvince = e.target.value;
     setCompanyData((prevData) => ({
@@ -188,61 +281,7 @@ const CadastroEmpresa = () => {
 
   const handleBack = () => setActiveStep((prevActiveStep) => prevActiveStep - 1);
 
-  const handleSubmit = async (user) => {
-    setIsLoading(true);
-    try {
-      if (user) {
-        const companyRef = ref(db, "company");
-        const snapshot = await get(companyRef);
 
-        let camposDuplicados = [];
-
-        snapshot.forEach((child) => {
-          const data = child.val();
-          if (data.nome === companyData.nome) camposDuplicados.push("Nome da Empresa");
-         {/*
-           if (data.nuel === companyData.nuel) camposDuplicados.push("NUEL");
-          if (data.nuit === companyData.nuit) camposDuplicados.push("NUIT");
-          if (data.nrContriuinte === companyData.nrContriuinte) camposDuplicados.push("Número de Contribuinte");*/}
-          if (data.contacto === companyData.contacto) camposDuplicados.push("Contacto");
-        });
-
-        if (camposDuplicados.length > 0) {
-          setErrorMessage(
-            `Os seguintes dados já estão cadastrados: ${camposDuplicados.join(", ")}. ` +
-            `Se você é o proprietário, contacte suporte@connectionmozambique.com.`
-          );
-          setIsLoading(false);
-          return;
-        }
-
-        const dataToSave = {
-          ...companyData,
-          id: user.uid,
-          email: user.email,
-          logoUrl: null,
-          subscriptions: {
-            status: "active",
-            isverify: "false",
-          },
-          createdAt: new Date().toISOString(),
-        };
-        await set(ref(db, `company/${user.uid}`), dataToSave);
-
-        alert("Empresa Cadastrada")
-
-        window.location.reload();
-
-      } else {
-        setErrorMessage("Impossivel cadastrar. Tente novamente");
-      }
-    } catch (error) {
-      setErrorMessage("Ocorreu um erro ao salvar os dados. Tente novamente.");
-      console.error("Erro no handleSubmit:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const renderStepContent = (step) => {
     switch (step) {
@@ -481,5 +520,6 @@ const CadastroEmpresa = () => {
       )}
     </div>
   );
-}
+};
+
 export default CadastroEmpresa;
