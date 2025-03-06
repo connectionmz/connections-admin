@@ -30,7 +30,7 @@ const EmpresaDetalhes = () => {
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info'); // 'info', 'success', 'error', etc.
   const [accessAction, setAccessAction] = useState(""); // Variável para armazenar a ação (Dar ou Remover acesso)
-
+  const [expandedModules, setExpandedModules] = useState({});
 
   useEffect(() => {
 
@@ -149,7 +149,12 @@ const fetchCotacoes = async () => {
   fetchCategories()
   }, [id]);
 
-  
+  const toggleModuleDetails = (moduleKey) => {
+    setExpandedModules((prev) => ({
+      ...prev,
+      [moduleKey]: !prev[moduleKey],
+    }));
+  };
 
   const handleSectorChange = async (e) => {
     const selected = e.target.value;
@@ -333,13 +338,53 @@ const fetchCotacoes = async () => {
         </div>
       )}
         </div>;
-        case 'modulos':
-          return (
-            <div>
+       case 'modulos':
+        return (
+          <div>
             <h2 className="text-xl font-semibold">Módulos</h2>
-                <ModulosComponent empresa ={empresa} activeModules={userModules || []}/>
+            
+            {/* Lista de Módulos Ativos */}
+            <div className="mt-4">
+              <h3 className="text-lg font-semibold">Módulos Ativos:</h3>
+              {
+  Object.keys(userModules).length > 0 ? (
+    <ul className="list-disc pl-6">
+      {Object.entries(userModules)
+        .filter(([moduleKey, moduleData]) => moduleData.status === "active") // Filtra módulos com status "active"
+        .map(([moduleKey, moduleData]) => (
+          <li key={moduleKey} className="text-gray-700 mb-2">
+            {/* Botão para expandir/recolher detalhes */}
+            <button
+              onClick={() => toggleModuleDetails(moduleKey)}
+              className="flex items-center justify-between w-full text-left focus:outline-none"
+            >
+              <strong>{moduleData.moduleKey}</strong>
+              <span className="ml-2">
+                {expandedModules[moduleKey] ? "▼" : "►"}
+              </span>
+            </button>
+
+            {/* Detalhes do módulo (colapsável) */}
+            {expandedModules[moduleKey] && (
+              <div className="ml-4 mt-2 text-sm text-gray-500">
+                <p>Status: {moduleData.status}</p>
+                <p>Pago em: {new Date(moduleData.paidAt).toLocaleDateString()}</p>
+                <p>Saldo {moduleData.smsCount}</p>
+              </div>
+            )}
+          </li>
+        ))}
+    </ul>
+  ) : (
+    <p className="text-gray-500">Nenhum módulo ativo encontrado.</p>
+  )
+}
+            </div>
+      
+            {/* Componente ModulosComponent */}
+            <ModulosComponent empresa={empresa} activeModules={userModules || {}} />
           </div>
-          );
+        );
               case 'publicacoes':
         return <p className="text-gray-500">
             <div className="mt-6">

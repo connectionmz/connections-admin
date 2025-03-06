@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Modal, Box, Checkbox, Button, Typography, FormControlLabel } from "@mui/material";
-import { getDatabase, ref, set, push, onValue } from "firebase/database";
+import { getDatabase, ref, set, push, onValue, update } from "firebase/database";
 
 const db = getDatabase();
 
-const ModulosComponent = ({ empresa, user }) => {
+const ModulosComponent = ({ empresa, activeModules }) => {
   const [open, setOpen] = useState(false);
   const [selectedModules, setSelectedModules] = useState([]);
   const [modules, setModules] = useState({});
@@ -23,8 +23,16 @@ const ModulosComponent = ({ empresa, user }) => {
   ];
 
   useEffect(() => {
-    const modulesRef = ref(db, "modules/modulos");
+    if (activeModules) {
+      const activeModuleKeys = Object.keys(activeModules).filter(
+        (key) => activeModules[key].status === "active"
+      );
+      setSelectedModules(activeModuleKeys);
+    }
+  }, [activeModules]);
 
+  useEffect(() => {
+    const modulesRef = ref(db, "modules/modulos");
     const unsubscribe = onValue(modulesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -32,7 +40,6 @@ const ModulosComponent = ({ empresa, user }) => {
       }
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -49,23 +56,40 @@ const ModulosComponent = ({ empresa, user }) => {
 
   const handleAddModules = async () => {
     try {
-      if (selectedModules.length === 0) return;
-
-
-      console.log("Módulos adicionados com sucesso:", selectedModules);
-
+      const updates = {};
+      const now = new Date();
+      
       selectedModules.forEach((moduleKey) => {
-        const paymentDetails = {
-          amount: modules[moduleKey] || 0,
-          method: "Cartão de Crédito", 
+        const expirationDate = new Date(now);
+        if (moduleKey === "moduloMarket") {
+          expirationDate.setFullYear(expirationDate.getFullYear() + 1);
+        } else {
+          expirationDate.setDate(expirationDate.getDate() + 31);
+        }
+        
+        updates[`company/${empresa.id}/activeModules/${moduleKey}`] = {
+          moduleKey: moduleKey,
+          paidAt: now.toISOString(),
+          expiresAt: expirationDate.toISOString(),
+          status: "active",
         };
-
-        UpdatePayment(empresa, moduleKey, paymentDetails);
+        
+        if (moduleKey === "moduloSMS") {
+          updates[`company/${empresa.id}/activeModules/${moduleKey}`].smsCount = 100; // Define um valor padrão
+        }
       });
-
+      
+      Object.keys(activeModules).forEach((moduleKey) => {
+        if (!selectedModules.includes(moduleKey)) {
+          updates[`company/${empresa.id}/activeModules/${moduleKey}/status`] = "false";
+        }
+      });
+      
+      await update(ref(db), updates);
+      console.log("Módulos atualizados com sucesso!");
       handleClose();
     } catch (error) {
-      console.error("Erro ao adicionar módulos:", error);
+      console.error("Erro ao atualizar módulos:", error);
     }
   };
 
@@ -77,7 +101,7 @@ const ModulosComponent = ({ empresa, user }) => {
     <div>
       <h2 className="text-xl font-semibold">Módulos</h2>
       <Button variant="contained" color="primary" onClick={handleOpen}>
-        Adicionar Módulos
+        Gerenciar Módulos
       </Button>
 
       <Modal open={open} onClose={handleClose}>
@@ -119,54 +143,13 @@ const ModulosComponent = ({ empresa, user }) => {
               color="primary"
               disabled={selectedModules.length === 0}
             >
-              Adicionar
+              Salvar
             </Button>
           </Box>
         </Box>
       </Modal>
     </div>
   );
-};
-
-// Função para atualizar pagamentos
-export const UpdatePayment = (user, moduleKey, paymentDetails) => {
-  const { id: userId, displayName } = user; // Extrai informações do usuário
-  const currentDate = new Date();
-  const month = currentDate.getMonth() + 1;
-  const year = currentDate.getFullYear();
-
-  // Referências no Firebase
-  const activeModulesRef = ref(db, `company/${userId}/activeModules/${moduleKey}`);
-  const subscriptionsRef = ref(db, `subscriptions/${userId}/${year}/${month}`);
-
-  // Dados para o módulo ativo
-  const activeModuleData = {
-    paidAt: currentDate.toISOString(),
-    moduleKey: moduleKey,
-    status: "active",
-  };
-
-  // Dados do pagamento
-  const paymentData = {
-    moduleKey: moduleKey,
-    amount: paymentDetails.amount,
-    method: paymentDetails.method,
-    paidAt: currentDate.toISOString(),
-    userName: displayName || "Cliente Anônimo",
-  };
-
-  try {
-    // Atualiza o módulo ativo
-    set(activeModulesRef, activeModuleData);
-
-    // Adiciona detalhes do pagamento
-    const newPaymentRef = push(subscriptionsRef);
-    set(newPaymentRef, paymentData);
-
-    console.log("Pagamento atualizado com sucesso!");
-  } catch (error) {
-    console.error("Erro ao atualizar pagamento:", error);
-  }
 };
 
 export default ModulosComponent;
