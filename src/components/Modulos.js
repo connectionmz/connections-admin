@@ -136,10 +136,12 @@ const Sectores = () => {
             left: "50%",
             transform: "translate(-50%, -50%)",
             width: 400,
+            maxHeight: "80vh", // Altura máxima do modal
             bgcolor: "background.paper",
             boxShadow: 24,
             p: 4,
             borderRadius: "8px",
+            overflowY: "auto", // Habilita o scroll vertical
           }}
         >
           <Typography variant="h6" gutterBottom>
@@ -166,7 +168,7 @@ const Sectores = () => {
               helperText={errorMessage} // Display error message
             />
             <Button variant="contained" onClick={handleAddSubsector}>
-              Adicionar
+              DONE
             </Button>
             <Button variant="outlined" onClick={handleCloseModal}>
               Fechar
