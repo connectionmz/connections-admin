@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ref, get, remove, onValue } from 'firebase/database';
 import { db } from '../fb';
+import jsPDF from 'jspdf';
 
 const Empresas = () => {
   const [empresas, setEmpresas] = useState([]);
@@ -13,6 +14,70 @@ const Empresas = () => {
   const [sectorFilter, setSectorFilter] = useState('');
   const [provinceFilter, setProvinceFilter] = useState('');
   const [tipoEntidadeFilter, setTipoEntidadeFilter] = useState('');
+
+  const fetchEmpresasComCustomSector = async () => {
+    try {
+      const snapshot = await get(ref(db, "company"));
+      const data = snapshot.val();
+  
+      if (data) {
+        // Filtrar empresas cujo sector é "outro"
+        const empresasFiltradas = Object.values(data).filter(
+          (empresa) => empresa.sector?.toLowerCase() === "outro"
+        );
+  
+        // Remover empresas com customSector duplicado
+        const empresasUnicas = [];
+        const customSectorsVistos = new Set();
+  
+        empresasFiltradas.forEach((empresa) => {
+          if (!customSectorsVistos.has(empresa.customSector)) {
+            customSectorsVistos.add(empresa.customSector);
+            empresasUnicas.push(empresa);
+          }
+        });
+  
+        console.log("Empresas únicas com setor 'outro':", empresasUnicas);
+  
+        // Gerar PDF com a lista de empresas
+        const doc = new jsPDF();
+  
+        // Configurações do PDF
+        const pageHeight = doc.internal.pageSize.getHeight(); // Altura da página
+        const margin = 10; // Margem superior e lateral
+        let y = margin; // Posição inicial no eixo Y
+  
+        // Adicionar título ao PDF
+        doc.setFontSize(18);
+        doc.text("Lista de Empresas com Setor 'Outro'", margin, y);
+        y += 10; // Aumentar a posição Y após o título
+  
+        // Adicionar lista de empresas ao PDF
+        empresasUnicas.forEach((empresa, index) => {
+          // Verificar se o conteúdo excede a altura da página
+          if (y > pageHeight - margin) {
+            doc.addPage(); // Adicionar uma nova página
+            y = margin; // Reiniciar a posição Y para o topo da nova página
+          }
+  
+          doc.setFontSize(12);
+          doc.text(
+            `${index + 1} - ${empresa.customSector || "N/A"}`,
+            margin,
+            y
+          );
+          y += 10; // Aumentar a posição Y para a próxima linha
+        });
+  
+        // Salvar o PDF
+        doc.save("lista_empresas_outro.pdf");
+      } else {
+        console.log("Nenhuma empresa encontrada.");
+      }
+    } catch (error) {
+      console.error("Erro ao buscar detalhes das empresas:", error);
+    }
+  };
 
   useEffect(() => {
     const fetchEmpresas = async () => {
@@ -36,9 +101,20 @@ const Empresas = () => {
     const sectoresRef = ref(db, 'sectores_de_atividade');
     const tipoEntidadeRef = ref(db, 'tipos_entidades');
 
-    onValue(provinciasRef, (snapshot) => setProvincias(snapshot.val() || []));
-    onValue(sectoresRef, (snapshot) => setSectores(snapshot.val() || []));
-    onValue(tipoEntidadeRef, (snapshot) => setTiposEntidades(snapshot.val() || []));
+    onValue(provinciasRef, (snapshot) => {
+      const data = snapshot.val();
+      setProvincias(data ? Object.values(data) : []);
+    });
+
+    onValue(sectoresRef, (snapshot) => {
+      const data = snapshot.val();
+      setSectores(data ? Object.values(data) : []);
+    });
+
+    onValue(tipoEntidadeRef, (snapshot) => {
+      const data = snapshot.val();
+      setTiposEntidades(data ? Object.values(data) : []);
+    });
 
     fetchEmpresas();
   }, []);
@@ -72,9 +148,8 @@ const Empresas = () => {
   };
 
   const handleSectorChange = (e) => setSectorFilter(e.target.value);
-const handleProvinceChange = (e) => setProvinceFilter(e.target.value);
-const handleEntidadeChange = (e) => setTipoEntidadeFilter(e.target.value);
-
+  const handleProvinceChange = (e) => setProvinceFilter(e.target.value);
+  const handleEntidadeChange = (e) => setTipoEntidadeFilter(e.target.value);
 
   const inputStyles = "border border-gray-300 p-2 rounded-lg";
 
@@ -117,6 +192,13 @@ const handleEntidadeChange = (e) => setTipoEntidadeFilter(e.target.value);
             </option>
           ))}
         </select>
+
+        <button
+          onClick={fetchEmpresasComCustomSector}
+          className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+        >
+          Gerar PDF de Empresas com Setor "Outro"
+        </button>
       </div>
 
       <div>

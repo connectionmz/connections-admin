@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { auth, db } from './fb';
-
 import Dashboard from './components/Dashboard';
 import Empresas from './components/Empresas';
 import EmpresaDetalhes from './components/EmpresaDetalhes';
@@ -22,6 +21,7 @@ import DashboardSectorPublico from './components/DashboardSectorPublico';
 import Validacoes from './components/Validacoes';
 import CadastroEmpresa from './components/CadastroEmpresa';
 import { getUserData } from './components/utils/utils';
+import Sectores from './components/Modulos';
 
 // Componente de rota privada
 function PrivateRoute({ children, allowedRoles }) {
@@ -62,7 +62,6 @@ function PrivateRoute({ children, allowedRoles }) {
   if (loading) return <LoadingScreen />;
   if (!role) return <Navigate to="/login" />;
   if (allowedRoles && !allowedRoles.includes(role)) return <Navigate to="/" />;
-
   return children;
 }
 
@@ -93,7 +92,6 @@ const SidebarLink = ({ to, label }) => (
     <Link to={to} className="block p-3 rounded-lg text-lg font-medium bg-gray-800 hover:bg-gray-700 transition">
       {label}
     </Link>
-
   </li>
 );
 
@@ -102,17 +100,14 @@ const Sidebar = () => {
     { to: "/empresas", label: "Empresas", roles: ["admin", "gestor de empresas"] },
     { to: "/CadastroEmpresa", label: "Cadastrar Empresa", roles: ["admin", "gestor de empresas"] },
     { to: "/validar", label: "Validações", roles: ["admin", "gestor de empresas"] },
-    { to: "/publicidades", label: "Publicidades", roles: ["admin", "gestor de cotações"] },
-    { to: "/servicos", label: "Serviços Externos", roles: ["admin", "gestor de serviços"] },
+    { to: "/blog", label: "Blog", roles: ["admin", "gestor de cotações"] },
     { to: "/anuncios", label: "Anúncios", roles: ["admin", "contabilista"] },
-    { to: "/modulos", label: "Módulos", roles: ["admin"] },
     { to: "/usuarios", label: "Usuários", roles: ["admin"] },
     { to: "/cotacoes", label: "Cotações", roles: ["admin", "gestor de cotações"] },
+    { to: "/sectores", label: "Sectores", roles: ["admin", "gestor de cotações"] },
     { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
-    { to: "/publico", label: "Setor Público", roles: ["admin"] },
     { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin"] },
   ];
-
   return (
     <aside className="bg-black text-white w-72 min-h-screen p-6">
       <Link to="/" className="block mb-10">
@@ -125,8 +120,7 @@ const Sidebar = () => {
           ))}
               <Link
         onClick={handleLogout}
-        className="block p-3 rounded-lg text-lg font-medium bg-red-800 text-white hover:bg-gray-700 transition mt-4"
-      >
+        className="block p-3 rounded-lg text-lg font-medium bg-red-800 text-white hover:bg-gray-700 transition mt-4">
         SAIR
       </Link>
         </ul>
@@ -134,7 +128,6 @@ const Sidebar = () => {
     </aside>
   );
 };
-
 function App() {
   return (
     <Router>
@@ -147,10 +140,10 @@ function App() {
             <Route path="/validar" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Validacoes /></PrivateRoute>} />
             <Route path="/publico" element={<PrivateRoute allowedRoles={['admin']}><DashboardSectorPublico /></PrivateRoute>} />
             <Route path="/CadastroEmpresa" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><CadastroEmpresa /></PrivateRoute>} />
-            <Route path="/publicidades" element={<PrivateRoute allowedRoles={['admin', 'gestor de cotações']}><Publicidade /></PrivateRoute>} />
+            <Route path="/blog" element={<PrivateRoute allowedRoles={['admin', 'gestor de cotações']}><Publicidade /></PrivateRoute>} />
             <Route path="/servicos" element={<PrivateRoute allowedRoles={['admin', 'gestor de serviços']}><ServicoxExternos /></PrivateRoute>} />
             <Route path="/anuncios" element={<PrivateRoute allowedRoles={['admin', 'contabilista']}><Anuncios /></PrivateRoute>} />
-            <Route path="/modulos" element={<PrivateRoute allowedRoles={['admin']}><Modulos /></PrivateRoute>} />
+            <Route path="/sectores" element={<PrivateRoute allowedRoles={['admin']}><Sectores /></PrivateRoute>} />sectores
             <Route path="/usuarios" element={<PrivateRoute allowedRoles={['admin']}><UsuariosOffline /></PrivateRoute>} />
             <Route path="/cotacoes" element={<PrivateRoute allowedRoles={['admin','gestor de cotações']}><Cotacoes /></PrivateRoute>} />
             <Route path="/utilizadores" element={<PrivateRoute allowedRoles={['admin']}><Utilizadores /></PrivateRoute>} />
@@ -163,5 +156,4 @@ function App() {
     </Router>
   );
 }
-
 export default App;

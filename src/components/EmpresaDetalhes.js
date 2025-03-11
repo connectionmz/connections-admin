@@ -34,14 +34,13 @@ const EmpresaDetalhes = () => {
 
   useEffect(() => {
 
-    const modulesRef = ref(db, `modules/modulos`);
-
-    const fetchEmpresa = async () => {
+      const fetchEmpresa = async () => {
       setLoading(true); 
       try {
         const snapshot = await get(ref(db, `company/${id}`));
         const data = snapshot.val();
 
+      
         if (data) {
           setEmpresa(data);
           setUserModules(data.activeModules || []); 
@@ -147,6 +146,7 @@ const fetchCotacoes = async () => {
   publicacoes()
   fetchEmpresa()
   fetchCategories()
+
   }, [id]);
 
   const toggleModuleDetails = (moduleKey) => {
@@ -347,38 +347,37 @@ const fetchCotacoes = async () => {
             <div className="mt-4">
               <h3 className="text-lg font-semibold">Módulos Ativos:</h3>
               {
-  Object.keys(userModules).length > 0 ? (
-    <ul className="list-disc pl-6">
-      {Object.entries(userModules)
-        .filter(([moduleKey, moduleData]) => moduleData.status === "active") // Filtra módulos com status "active"
-        .map(([moduleKey, moduleData]) => (
-          <li key={moduleKey} className="text-gray-700 mb-2">
-            {/* Botão para expandir/recolher detalhes */}
-            <button
-              onClick={() => toggleModuleDetails(moduleKey)}
-              className="flex items-center justify-between w-full text-left focus:outline-none"
-            >
-              <strong>{moduleData.moduleKey}</strong>
-              <span className="ml-2">
-                {expandedModules[moduleKey] ? "▼" : "►"}
-              </span>
-            </button>
-
-            {/* Detalhes do módulo (colapsável) */}
-            {expandedModules[moduleKey] && (
-              <div className="ml-4 mt-2 text-sm text-gray-500">
-                <p>Status: {moduleData.status}</p>
-                <p>Pago em: {new Date(moduleData.paidAt).toLocaleDateString()}</p>
-                <p>Saldo {moduleData.smsCount}</p>
-              </div>
-            )}
-          </li>
-        ))}
-    </ul>
-  ) : (
-    <p className="text-gray-500">Nenhum módulo ativo encontrado.</p>
-  )
-}
+                  Object.keys(userModules).length > 0 ? (
+                    <ul className="list-disc pl-6">
+                      {Object.entries(userModules)
+                        .filter(([moduleKey, moduleData]) => moduleData.status === "active") // Filtra módulos com status "active"
+                        .map(([moduleKey, moduleData]) => (
+                          <li key={moduleKey} className="text-gray-700 mb-2">
+                            {/* Botão para expandir/recolher detalhes */}
+                            <button
+                              onClick={() => toggleModuleDetails(moduleKey)}
+                              className="flex items-center justify-between w-full text-left focus:outline-none"
+                            >
+                              <strong>{moduleData.moduleKey}</strong>
+                              <span className="ml-2">
+                                {expandedModules[moduleKey] ? "▼" : "►"}
+                              </span>
+                            </button>
+                            {/* Detalhes do módulo (colapsável) */}
+                            {expandedModules[moduleKey] && (
+                              <div className="ml-4 mt-2 text-sm text-gray-500">
+                                <p>Status: {moduleData.status}</p>
+                                <p>Pago em: {new Date(moduleData.paidAt).toLocaleDateString()}</p>
+                                <p>Saldo :{moduleData.smsCount}</p>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <p className="text-gray-500">Nenhum módulo ativo encontrado.</p>
+                  )
+                }
             </div>
       
             {/* Componente ModulosComponent */}
