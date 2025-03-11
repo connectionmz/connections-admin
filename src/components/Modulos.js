@@ -18,6 +18,7 @@ const Sectores = () => {
   const [newSubsector, setNewSubsector] = useState("");
   const [openModal, setOpenModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState(""); // State for error messages
 
   // Buscar setores do Firebase
   useEffect(() => {
@@ -45,23 +46,36 @@ const Sectores = () => {
   const handleOpenModal = (index) => {
     setSelectedSetorIndex(index); // Store the index of the selected sector
     setOpenModal(true);
+    setErrorMessage(""); // Clear any previous error messages
   };
 
   // Fechar modal
   const handleCloseModal = () => {
     setOpenModal(false);
     setNewSubsector("");
+    setErrorMessage(""); // Clear any error messages
   };
 
   // Adicionar novo subsector
   const handleAddSubsector = async () => {
-    if (!newSubsector.trim()) return; // Evitar adicionar subsector vazio
+    if (!newSubsector.trim()) {
+      setErrorMessage("O subsector não pode estar vazio.");
+      return;
+    }
+
+    // Check if the subsector already exists
+    const subsectores = sectores[selectedSetorIndex].subsectores;
+    const isDuplicate = subsectores.some(
+      (subsector) => subsector.toLowerCase() === newSubsector.toLowerCase()
+    );
+
+    if (isDuplicate) {
+      setErrorMessage("Este subsector já existe.");
+      return;
+    }
 
     try {
-      const updatedSubsectores = [
-        ...sectores[selectedSetorIndex].subsectores,
-        newSubsector,
-      ];
+      const updatedSubsectores = [...subsectores, newSubsector];
 
       // Update Firebase using the index
       const setorRef = ref(db, `sectores_de_atividade/${selectedSetorIndex}`);
@@ -77,8 +91,10 @@ const Sectores = () => {
       );
 
       setNewSubsector(""); // Limpar campo de texto
+      setErrorMessage(""); // Clear error message on success
     } catch (error) {
       console.error("Erro ao adicionar subsector: ", error);
+      setErrorMessage("Erro ao adicionar subsector. Tente novamente.");
     }
   };
 
@@ -146,6 +162,8 @@ const Sectores = () => {
               label="Novo Subsector"
               value={newSubsector}
               onChange={(e) => setNewSubsector(e.target.value)}
+              error={!!errorMessage} // Show error state
+              helperText={errorMessage} // Display error message
             />
             <Button variant="contained" onClick={handleAddSubsector}>
               Adicionar
