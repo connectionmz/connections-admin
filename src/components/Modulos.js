@@ -14,9 +14,10 @@ import { getDatabase, ref, get, update } from "firebase/database";
 const Sectores = () => {
   const db = getDatabase();
   const [sectores, setSectores] = useState([]);
-  const [selectedSetor, setSelectedSetor] = useState(null);
+  const [selectedSetorIndex, setSelectedSetorIndex] = useState(null); // Store the index of the selected sector
   const [newSubsector, setNewSubsector] = useState("");
   const [openModal, setOpenModal] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Buscar setores do Firebase
   useEffect(() => {
@@ -25,20 +26,24 @@ const Sectores = () => {
       try {
         const snapshot = await get(dbRef);
         if (snapshot.exists()) {
-          setSectores(snapshot.val());
+          const data = snapshot.val();
+          const sectoresArray = Object.keys(data).map((key) => data[key]);
+          setSectores(sectoresArray);
         } else {
           console.log("Nenhum setor encontrado.");
         }
       } catch (error) {
         console.error("Erro ao buscar setores: ", error);
+      } finally {
+        setLoading(false);
       }
     };
     fetchSectores();
   }, [db]);
 
   // Abrir modal com subsectores
-  const handleOpenModal = (setor) => {
-    setSelectedSetor(setor);
+  const handleOpenModal = (index) => {
+    setSelectedSetorIndex(index); // Store the index of the selected sector
     setOpenModal(true);
   };
 
@@ -53,14 +58,19 @@ const Sectores = () => {
     if (!newSubsector.trim()) return; // Evitar adicionar subsector vazio
 
     try {
-      const updatedSubsectores = [...selectedSetor.subsectores, newSubsector];
-      const setorRef = ref(db, `sectores_de_atividade/${selectedSetor.setor}`);
+      const updatedSubsectores = [
+        ...sectores[selectedSetorIndex].subsectores,
+        newSubsector,
+      ];
+
+      // Update Firebase using the index
+      const setorRef = ref(db, `sectores_de_atividade/${selectedSetorIndex}`);
       await update(setorRef, { subsectores: updatedSubsectores });
 
       // Atualizar estado local
       setSectores((prev) =>
-        prev.map((setor) =>
-          setor.setor === selectedSetor.setor
+        prev.map((setor, index) =>
+          index === selectedSetorIndex
             ? { ...setor, subsectores: updatedSubsectores }
             : setor
         )
@@ -72,6 +82,17 @@ const Sectores = () => {
     }
   };
 
+  const listItemStyles = {
+    backgroundColor: "#f5f5f5",
+    marginBottom: "8px",
+    borderRadius: "4px",
+    "&:hover": { backgroundColor: "#e0e0e0" },
+  };
+
+  if (loading) {
+    return <Typography>Carregando...</Typography>;
+  }
+
   return (
     <Box className="p-8 bg-gray-50 min-h-screen">
       <Typography variant="h4" gutterBottom>
@@ -82,13 +103,8 @@ const Sectores = () => {
           <ListItem
             key={index}
             button
-            onClick={() => handleOpenModal(setor)}
-            sx={{
-              backgroundColor: "#f5f5f5",
-              marginBottom: "8px",
-              borderRadius: "4px",
-              "&:hover": { backgroundColor: "#e0e0e0" },
-            }}
+            onClick={() => handleOpenModal(index)} // Pass the index instead of the sector object
+            sx={listItemStyles}
           >
             <ListItemText primary={setor.setor} />
           </ListItem>
@@ -111,14 +127,18 @@ const Sectores = () => {
           }}
         >
           <Typography variant="h6" gutterBottom>
-            Subsectores de {selectedSetor?.setor}
+            Subsectores de{" "}
+            {selectedSetorIndex !== null
+              ? sectores[selectedSetorIndex].setor
+              : "Setor Desconhecido"}
           </Typography>
           <List>
-            {selectedSetor?.subsectores.map((subsector, index) => (
-              <ListItem key={index}>
-                <ListItemText primary={subsector} />
-              </ListItem>
-            ))}
+            {selectedSetorIndex !== null &&
+              sectores[selectedSetorIndex].subsectores.map((subsector, index) => (
+                <ListItem key={index}>
+                  <ListItemText primary={subsector} />
+                </ListItem>
+              ))}
           </List>
           <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
             <TextField
@@ -129,6 +149,9 @@ const Sectores = () => {
             />
             <Button variant="contained" onClick={handleAddSubsector}>
               Adicionar
+            </Button>
+            <Button variant="outlined" onClick={handleCloseModal}>
+              Fechar
             </Button>
           </Box>
         </Box>
