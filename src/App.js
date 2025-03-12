@@ -1,9 +1,9 @@
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
-import './App.css';
-import { useState, useEffect } from 'react';
-import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
-import { ref, get } from 'firebase/database';
-import { auth, db } from './fb';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom'
+import './App.css'
+import { useState, useEffect } from 'react'
+import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth'
+import { ref, get } from 'firebase/database'
+import { auth, db } from './fb'
 import Dashboard from './components/Dashboard';
 import Empresas from './components/Empresas';
 import EmpresaDetalhes from './components/EmpresaDetalhes';
@@ -19,15 +19,15 @@ import RevenueReport from './components/RevenueReport';
 import Parceiros from './components/Parceiros';
 import DashboardSectorPublico from './components/DashboardSectorPublico';
 import Validacoes from './components/Validacoes';
-import CadastroEmpresa from './components/CadastroEmpresa';
-import { getUserData } from './components/utils/utils';
-import Sectores from './components/Modulos';
+import CadastroEmpresa from './components/CadastroEmpresa'
+import { getUserData } from './components/utils/utils'
+import Sectores from './components/Modulos'
 
 // Componente de rota privada
 function PrivateRoute({ children, allowedRoles }) {
-  const [user, setUser] = useState(null);
-  const [role, setRole] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null)
+  const [role, setRole] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const userData = getUserData();
@@ -42,31 +42,31 @@ function PrivateRoute({ children, allowedRoles }) {
       const auth = getAuth();
       const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
-          setUser(firebaseUser);
+          setUser(firebaseUser)
           try {
-            const snapshot = await get(ref(db, `utilizadores/${firebaseUser.uid}`));
-            setRole(snapshot.exists() ? snapshot.val().role : null);
+            const snapshot = await get(ref(db, `utilizadores/${firebaseUser.uid}`))
+            setRole(snapshot.exists() ? snapshot.val().role : null)
           } catch (error) {
-            console.error('Erro ao buscar o papel do usuário:', error);
+            console.error('Erro ao buscar o papel do usuário:', error)
           }
         } else {
-          setUser(null);
-          setRole(null);
+          setUser(null)
+          setRole(null)
         }
-        setLoading(false);
+        setLoading(false)
       });
-      return () => unsubscribe();
+      return () => unsubscribe()
     }
   }, []);
 
   if (loading) return <LoadingScreen />;
   if (!role) return <Navigate to="/login" />;
-  if (allowedRoles && !allowedRoles.includes(role)) return <Navigate to="/" />;
+  if (allowedRoles && !allowedRoles.includes(role)) return <Navigate to="/" />
   return children;
 }
 
 const clearUserData = () => {
-  sessionStorage.removeItem('user');
+  sessionStorage.removeItem('user')
 };
 
 const handleLogout = async () => {
@@ -75,10 +75,10 @@ const handleLogout = async () => {
 
     clearUserData();
 
-    window.location.href = '/login'; 
+    window.location.href = '/login'
   } catch (error) {
-    console.error('Erro ao fazer logout:', error);
-    alert('Ocorreu um erro ao tentar sair.');
+    console.error('Erro ao fazer logout:', error)
+    alert('Ocorreu um erro ao tentar sair.')
   }
 };
 const LoadingScreen = () => (
@@ -107,7 +107,7 @@ const Sidebar = () => {
     { to: "/sectores", label: "Sectores", roles: ["admin", "gestor de cotações"] },
     { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
     { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin"] },
-  ];
+  ]
   return (
     <aside className="bg-black text-white w-72 min-h-screen p-6">
       <Link to="/" className="block mb-10">
@@ -126,8 +126,8 @@ const Sidebar = () => {
         </ul>
       </nav>
     </aside>
-  );
-};
+  )
+}
 function App() {
   return (
     <Router>
