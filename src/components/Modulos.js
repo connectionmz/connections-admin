@@ -8,17 +8,24 @@ import {
   TextField,
   Button,
   Typography,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import { getDatabase, ref, get, update } from "firebase/database";
 
 const Sectores = () => {
   const db = getDatabase();
   const [sectores, setSectores] = useState([]);
-  const [selectedSetorIndex, setSelectedSetorIndex] = useState(null); // Store the index of the selected sector
+  const [selectedSetorIndex, setSelectedSetorIndex] = useState(null);
   const [newSubsector, setNewSubsector] = useState("");
   const [openModal, setOpenModal] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState(""); // State for error messages
+  const [errorMessage, setErrorMessage] = useState("");
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [subsectorToDelete, setSubsectorToDelete] = useState(null);
 
   // Buscar setores do Firebase
   useEffect(() => {
@@ -44,16 +51,16 @@ const Sectores = () => {
 
   // Abrir modal com subsectores
   const handleOpenModal = (index) => {
-    setSelectedSetorIndex(index); // Store the index of the selected sector
+    setSelectedSetorIndex(index);
     setOpenModal(true);
-    setErrorMessage(""); // Clear any previous error messages
+    setErrorMessage("");
   };
 
   // Fechar modal
   const handleCloseModal = () => {
     setOpenModal(false);
     setNewSubsector("");
-    setErrorMessage(""); // Clear any error messages
+    setErrorMessage("");
   };
 
   // Adicionar novo subsector
@@ -63,7 +70,6 @@ const Sectores = () => {
       return;
     }
 
-    // Check if the subsector already exists
     const subsectores = sectores[selectedSetorIndex].subsectores;
     const isDuplicate = subsectores.some(
       (subsector) => subsector.toLowerCase() === newSubsector.toLowerCase()
@@ -77,11 +83,9 @@ const Sectores = () => {
     try {
       const updatedSubsectores = [...subsectores, newSubsector];
 
-      // Update Firebase using the index
       const setorRef = ref(db, `sectores_de_atividade/${selectedSetorIndex}`);
       await update(setorRef, { subsectores: updatedSubsectores });
 
-      // Atualizar estado local
       setSectores((prev) =>
         prev.map((setor, index) =>
           index === selectedSetorIndex
@@ -90,11 +94,49 @@ const Sectores = () => {
         )
       );
 
-      setNewSubsector(""); // Limpar campo de texto
-      setErrorMessage(""); // Clear error message on success
+      setNewSubsector("");
+      setErrorMessage("");
     } catch (error) {
       console.error("Erro ao adicionar subsector: ", error);
       setErrorMessage("Erro ao adicionar subsector. Tente novamente.");
+    }
+  };
+
+  // Abrir diálogo de confirmação para eliminar subsector
+  const handleOpenDeleteConfirmation = (subsector) => {
+    setSubsectorToDelete(subsector);
+    setDeleteConfirmationOpen(true);
+  };
+
+  // Fechar diálogo de confirmação
+  const handleCloseDeleteConfirmation = () => {
+    setDeleteConfirmationOpen(false);
+    setSubsectorToDelete(null);
+  };
+
+  // Eliminar subsector
+  const handleDeleteSubsector = async () => {
+    if (subsectorToDelete === null || selectedSetorIndex === null) return;
+
+    try {
+      const updatedSubsectores = sectores[selectedSetorIndex].subsectores.filter(
+        (subsector) => subsector !== subsectorToDelete
+      );
+
+      const setorRef = ref(db, `sectores_de_atividade/${selectedSetorIndex}`);
+      await update(setorRef, { subsectores: updatedSubsectores });
+
+      setSectores((prev) =>
+        prev.map((setor, index) =>
+          index === selectedSetorIndex
+            ? { ...setor, subsectores: updatedSubsectores }
+            : setor
+        )
+      );
+
+      handleCloseDeleteConfirmation();
+    } catch (error) {
+      console.error("Erro ao eliminar subsector: ", error);
     }
   };
 
@@ -119,7 +161,7 @@ const Sectores = () => {
           <ListItem
             key={index}
             button
-            onClick={() => handleOpenModal(index)} // Pass the index instead of the sector object
+            onClick={() => handleOpenModal(index)}
             sx={listItemStyles}
           >
             <ListItemText primary={setor.setor} />
@@ -136,12 +178,12 @@ const Sectores = () => {
             left: "50%",
             transform: "translate(-50%, -50%)",
             width: 400,
-            maxHeight: "80vh", // Altura máxima do modal
+            maxHeight: "80vh",
             bgcolor: "background.paper",
             boxShadow: 24,
             p: 4,
             borderRadius: "8px",
-            overflowY: "auto", // Habilita o scroll vertical
+            overflowY: "auto",
           }}
         >
           <Typography variant="h6" gutterBottom>
@@ -155,6 +197,10 @@ const Sectores = () => {
               sectores[selectedSetorIndex].subsectores.map((subsector, index) => (
                 <ListItem key={index}>
                   <ListItemText primary={subsector} />
+                  <IconButton
+                    onClick={() => handleOpenDeleteConfirmation(subsector)}>
+                    x
+                  </IconButton>
                 </ListItem>
               ))}
           </List>
@@ -164,8 +210,8 @@ const Sectores = () => {
               label="Novo Subsector"
               value={newSubsector}
               onChange={(e) => setNewSubsector(e.target.value)}
-              error={!!errorMessage} // Show error state
-              helperText={errorMessage} // Display error message
+              error={!!errorMessage}
+              helperText={errorMessage}
             />
             <Button variant="contained" onClick={handleAddSubsector}>
               DONE
@@ -176,6 +222,25 @@ const Sectores = () => {
           </Box>
         </Box>
       </Modal>
+
+      {/* Diálogo de confirmação para eliminar subsector */}
+      <Dialog
+        open={deleteConfirmationOpen}
+        onClose={handleCloseDeleteConfirmation}
+      >
+        <DialogTitle>Confirmar Eliminação</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Tem certeza que deseja eliminar o subsector "{subsectorToDelete}"?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDeleteConfirmation}>Cancelar</Button>
+          <Button onClick={handleDeleteSubsector} color="error">
+            Eliminar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
