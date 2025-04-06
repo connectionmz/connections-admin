@@ -1,530 +1,501 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { ref, get, push, orderByChild, equalTo, query, update } from 'firebase/database'; 
+import { ref, get, update } from 'firebase/database'; 
 import { db } from '../fb'; 
 import jsPDF from 'jspdf';
 import { Alert, Snackbar } from '@mui/material';
 import ModulosComponent from './ModulosComponent';
 
+// Componentes de UI reutilizáveis
+const SectionHeader = ({ title }) => (
+  <h2 className="text-xl font-semibold mb-4 text-gray-800">{title}</h2>
+);
+
+const InfoCard = ({ title, value, icon }) => (
+  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+    <div className="flex items-center">
+      {icon && <span className="mr-2 text-blue-500">{icon}</span>}
+      <h3 className="text-sm font-medium text-gray-500">{title}</h3>
+    </div>
+    <p className="mt-1 text-lg font-semibold text-gray-800">{value || 'Não disponível'}</p>
+  </div>
+);
+
+const TabButton = ({ active, onClick, children }) => (
+  <button
+    onClick={onClick}
+    className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors ${
+      active 
+        ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50' 
+        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+    }`}
+  >
+    {children}
+  </button>
+);
+
 const EmpresaDetalhes = () => {
-  const { id } = useParams(); 
+  const { id } = useParams();
   const [empresa, setEmpresa] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('inicio'); 
-  const [showModal, setShowModal] = useState(false); 
-  const [selectedPlan, setSelectedPlan] = useState('basico'); 
+  const [activeTab, setActiveTab] = useState('inicio');
+  const [userModules, setUserModules] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
-  const [selectedMetodo, setSelectedMetodo] = useState('cash'); 
-  const [recorrente, setRecorrente] = useState(false); 
-  const [userModules, setUserModules] = useState([])
-  const [cotacoes, setCotacoes] = useState([]);
-  const [concurso, setConcursos] = useState([]);
-  const [publicacoes, setPublicacoes] = useState([]);
-  const [planos, setPlanos] = useState([]);
   const [selectedSector, setSelectedSector] = useState('');
-  const [categories, setCategories] = useState([]); 
-  const [documentLinks, setDocumentLinks] = useState([]);
-  const [error, setError] = useState(null);
+  const [categories, setCategories] = useState([]);
   const [status, setStatus] = useState('');
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [snackbarSeverity, setSnackbarSeverity] = useState('info'); // 'info', 'success', 'error', etc.
-  const [accessAction, setAccessAction] = useState(""); // Variável para armazenar a ação (Dar ou Remover acesso)
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'info'
+  });
+  const [accessAction, setAccessAction] = useState("");
   const [expandedModules, setExpandedModules] = useState({});
 
+  // Buscar dados da empresa
   useEffect(() => {
-
-      const fetchEmpresa = async () => {
-      setLoading(true); 
-      try {
-        const snapshot = await get(ref(db, `company/${id}`));
-        const data = snapshot.val();
-
-      
-        if (data) {
-          setEmpresa(data);
-          setUserModules(data.activeModules || []); 
-        } else {
-          console.log('Empresa não encontrada.');
-        }
-      } catch (error) {
-        console.error('Erro ao buscar detalhes da empresa:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    
-    const fetchCategories = async () => {
-      const categoriesRef = ref(db, 'categoriasExternas');
-      const categorySnapshot = await get(categoriesRef);
-      const categoryList = categorySnapshot.val() ? Object.values(categorySnapshot.val()) : [];
-      setCategories(categoryList);
-    };
-
-// Função para buscar subscrições da empresa específica com ID passado
-const fetchSubscriptions = async (companyId) => {
-  setLoading(true);
-  try {
-    const snapshot = await get(ref(db, `subscriptions/`));
-    const data = snapshot.val();
-
-    if (data) {
-      // Filtra subscrições apenas da empresa com o ID especificado
-      const filteredSubscriptions = Object.values(data).filter(
-        (sub) => sub.companyId === companyId
-      );
-      
-      setSubscriptions(filteredSubscriptions);
-      console.log(filteredSubscriptions);
-    } else {
-      console.log('Empresa não encontrada.');
-    }
-  } catch (error) {
-    console.error('Erro ao buscar detalhes da empresa:', error);
-  } finally {
-    setLoading(false);
-  }
-};
-const fetchCotacoes = async () => {
-      const cotacoesRef = ref(db, 'cotacoes');
+    const fetchData = async () => {
       setLoading(true);
-  
       try {
-          const cotacoesSnapshot = await get(cotacoesRef);
-          const cotacoesData = cotacoesSnapshot.val();
-  
-          if (cotacoesData) {
-              const filteredCotacoes = Object.keys(cotacoesData)
-                  .filter((cotacaoId) => cotacoesData[cotacaoId].company.id === id)
-                  .reduce((acc, cotacaoId) => {
-                      acc[cotacaoId] = cotacoesData[cotacaoId];
-                      return acc;
-                  }, {});
-  
-              if (Object.keys(filteredCotacoes).length > 0) {
-                  setCotacoes(filteredCotacoes);
-                  console.log(cotacoes)
-              } else {
-                  console.log("Nenhuma cotação encontrada para a empresa especificada.");
-              }
-          } else {
-              console.log("Nenhuma cotação encontrada.");
-          }
-      } catch (error) {
-          setError('Erro ao carregar as cotações. Por favor, tente novamente.');
-          console.error("Erro ao obter as cotações:", error);
-      } finally {
-          setLoading(false);
-      }
-}
-
-
-  const publicacoes = async () => {
-    const postsRef = ref(db, `company/${id}/publishedPhotos`);
-    setLoading(true);
-
-    try {
-        const postsSnapshot = await get(postsRef);
-        const postsData = postsSnapshot.val();
-
-        if (postsData) {
-            console.log("Fotos publicadas:", postsData);
-            setPublicacoes(postsData);
-        } else {
-            console.log("Nenhuma foto publicada encontrada.");
+        // Buscar empresa
+        const empresaSnapshot = await get(ref(db, `company/${id}`));
+        const empresaData = empresaSnapshot.val();
+        
+        if (empresaData) {
+          setEmpresa(empresaData);
+          setUserModules(empresaData.activeModules || []);
+          setStatus(empresaData.status || '');
         }
-    } catch (error) {
-        setError('Erro ao carregar as fotos publicadas. Por favor, tente novamente.');
-        console.error("Erro ao obter as fotos publicadas:", error);
-    } finally {
+
+        // Buscar categorias
+        const categoriesSnapshot = await get(ref(db, 'categoriasExternas'));
+        const categoriesData = categoriesSnapshot.val() ? Object.values(categoriesSnapshot.val()) : [];
+        setCategories(categoriesData);
+
+        // Buscar assinaturas
+        const subscriptionsSnapshot = await get(ref(db, 'subscriptions'));
+        if (subscriptionsSnapshot.exists()) {
+          const subscriptionsData = Object.values(subscriptionsSnapshot.val())
+            .filter(sub => sub.companyId === id);
+          setSubscriptions(subscriptionsData);
+        }
+
+      } catch (error) {
+        console.error('Erro ao buscar dados:', error);
+        setSnackbar({
+          open: true,
+          message: 'Erro ao carregar dados da empresa',
+          severity: 'error'
+        });
+      } finally {
         setLoading(false);
-    }
-  }
+      }
+    };
 
-  fetchSubscriptions(id)
-  publicacoes()
-  fetchEmpresa()
-  fetchCategories()
-
+    fetchData();
   }, [id]);
 
-  const toggleModuleDetails = (moduleKey) => {
-    setExpandedModules((prev) => ({
-      ...prev,
-      [moduleKey]: !prev[moduleKey],
-    }));
-  };
-
+  // Manipuladores de eventos
   const handleSectorChange = async (e) => {
     const selected = e.target.value;
     setSelectedSector(selected);
 
-    if (selected) {
-      try {
-        await update(ref(db, `company/${id}`), { categoriaExterna: selected });
-        alert(`Setor "${selected}" definido com sucesso como setor público.`);
-      } catch (error) {
-        console.error('Erro ao definir o setor público:', error);
-        alert('Erro ao definir o setor público. Tente novamente.');
-      }
+    try {
+      await update(ref(db, `company/${id}`), { categoriaExterna: selected });
+      setSnackbar({
+        open: true,
+        message: `Setor "${selected}" definido com sucesso!`,
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Erro ao definir setor:', error);
+      setSnackbar({
+        open: true,
+        message: 'Erro ao definir setor',
+        severity: 'error'
+      });
     }
   };
 
-  const handleStatusChange = (newStatus) => {
+  const handleStatusChange = async (newStatus) => {
     setStatus(newStatus);
-
-    // Define mensagens e severidade com base no estado selecionado
-    switch (newStatus) {
-      case 'verificado':
-        setSnackbarMessage('O estado agora é "Verificado".');
-        setSnackbarSeverity('success');
-        handleCancelarPlano(newStatus)
-        break;
-      case 'bloqueado':
-        setSnackbarMessage('A empresa foi marcada como "Bloqueada".');
-        setSnackbarSeverity('error');
-        handleCancelarPlano(newStatus)
-
-        break;
-      case 'ativo':
-        setSnackbarMessage('A empresa está agora "Ativa".');
-        setSnackbarSeverity('info');
-        handleCancelarPlano(newStatus)
-        break;
-      default:
-        setSnackbarMessage('Estado desconhecido selecionado.');
-        setSnackbarSeverity('warning');
+    
+    try {
+      await update(ref(db, `company/${id}`), { status: newStatus });
+      
+      let message = '';
+      switch (newStatus) {
+        case 'verificado': message = 'Empresa verificada com sucesso'; break;
+        case 'bloqueado': message = 'Empresa bloqueada'; break;
+        case 'ativo': message = 'Empresa ativada'; break;
+        default: message = 'Status atualizado';
+      }
+      
+      setSnackbar({
+        open: true,
+        message,
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Erro ao atualizar status:', error);
+      setSnackbar({
+        open: true,
+        message: 'Erro ao atualizar status',
+        severity: 'error'
+      });
     }
-
-    // Exibe o Snackbar
-    setSnackbarOpen(true);
   };
 
-  const handleSnackbarClose = () => {
-    setSnackbarOpen(false);
-  };
-  
-  const handleAccessActionChange = (e) => {
-    const selectedAction = e.target.value;
-    setAccessAction(selectedAction);
-  
-    // Supondo que 'id' seja o identificador único da empresa
-    const accessActionRef = ref(db, `company/${id}/`);
-  
-    // Atualizar a propriedade 'publicPainel' no banco de dados com base na ação selecionada
-    update(accessActionRef, {
-      publicPainel: selectedAction === "grant" ? true : false,  // "grant" dá acesso, "revoke" remove
-    })
-    .then(() => {
-      console.log(`Ação "${selectedAction}" aplicada com sucesso!`);
-    })
-    .catch((error) => {
-      console.error("Erro ao atualizar o banco de dados:", error);
+  const handleAccessChange = (e) => {
+    const action = e.target.value;
+    setAccessAction(action);
+    
+    update(ref(db, `company/${id}`), {
+      publicPainel: action === "grant"
+    }).then(() => {
+      setSnackbar({
+        open: true,
+        message: `Acesso ${action === "grant" ? "concedido" : "revogado"}`,
+        severity: 'success'
+      });
+    }).catch(error => {
+      console.error("Erro ao atualizar acesso:", error);
+      setSnackbar({
+        open: true,
+        message: 'Erro ao atualizar acesso',
+        severity: 'error'
+      });
     });
   };
 
-  const handleCancelarPlano = async (status) => {
-    try {
-      const subscriptionRef = ref(db, `company/${id}/subscriptions`);
-      await update(subscriptionRef, { status:status });
-      alert('Assinatura cancelada com sucesso!');
-    } catch (error) {
-      console.error('Erro ao cancelar a assinatura:', error);
-    }
+  const toggleModuleDetails = (moduleKey) => {
+    setExpandedModules(prev => ({
+      ...prev,
+      [moduleKey]: !prev[moduleKey]
+    }));
   };
 
   const gerarFatura = (sub) => {
     const doc = new jsPDF();
-    doc.text(`Fatura: Plano ${sub.plan.name}`, 10, 10);
-    doc.text(`Valor: ${sub.payment.amount} MT`, 10, 20);
-    doc.text(`Método de Pagamento: ${sub.payment.method}`, 10, 30);
-    doc.text(`Data de Pagamento: ${new Date(sub.payment.date).toLocaleDateString()}`, 10, 40);
-    doc.text(`Expira em: ${new Date(sub.expiryDate).toLocaleDateString()}`, 10, 50);
-    doc.save(`fatura_${sub.plan.name}.pdf`);
+    doc.setFontSize(16);
+    doc.text(`Fatura: ${sub.plan.name}`, 10, 15);
+    doc.setFontSize(12);
+    doc.text(`Empresa: ${empresa.nome}`, 10, 25);
+    doc.text(`Valor: ${sub.payment.amount} MT`, 10, 35);
+    doc.text(`Método: ${sub.payment.method}`, 10, 45);
+    doc.text(`Data: ${new Date(sub.payment.date).toLocaleDateString()}`, 10, 55);
+    doc.text(`Expira em: ${new Date(sub.expiryDate).toLocaleDateString()}`, 10, 65);
+    doc.save(`fatura_${empresa.nome}_${sub.plan.name}.pdf`);
   };
 
+  const handleSnackbarClose = () => {
+    setSnackbar(prev => ({ ...prev, open: false }));
+  };
+
+  // Renderização condicional
   if (loading) {
-    return <p className="text-center text-gray-500">Carregando...</p>;
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
   }
 
   if (!empresa) {
-    return <p className="text-center text-red-500">Empresa não encontrada.</p>;
+    return (
+      <div className="text-center py-10">
+        <p className="text-red-500 text-lg">Empresa não encontrada</p>
+      </div>
+    );
   }
 
+  // Conteúdo das abas
   const renderTabContent = () => {
     switch (activeTab) {
       case 'inicio':
         return (
-                  <div className="container mx-auto p-6">
-                      <div className="mb-6">
-                          <img src={empresa.coverUrl} alt="Capa" className="w-full h-64 object-cover rounded-lg" />
-                      </div>
-                      <div className="flex justify-center mb-4">
-                          <img src={empresa.logoUrl} alt="Logo" className="w-32 h-32 object-cover rounded-full border-2 border-gray-300" />
-                      </div>
-                      <div className="grid grid-cols-1 gap-6">
-                          <div className="bg-gray-100 p-6 rounded-lg">
-                              <p className="text-xl font-semibold text-gray-800">
-                                  <strong>Nome:</strong> {empresa.nome || 'Não disponível'}<br />
-                                  <strong>Setor:</strong> {empresa.sector || 'Não disponível'}<br />
-                                  <strong>Província:</strong> {empresa.provincia || 'Não disponível'}<br />
-                                  <strong>NUIT:</strong> {empresa.nuit || 'Não disponível'}<br />
-                                  <strong>Contacto:</strong> {empresa.contacto || 'Não disponível'}<br />
-                                  <strong>Endereço:</strong> {empresa.endereco || 'Não disponível'}<br />
-                                  <strong>Bio:</strong> {empresa.bio || 'Não disponível'}<br />
-                                  <strong>Email:</strong> {empresa.email || 'Não disponível'}<br />
-                                  <strong>Palavra-passe:</strong> {empresa.password || 'Não disponível'}<br />
-                                  <strong>Referencia:</strong> {empresa?.referer?.email || 'Não disponível'}<br />
-                                  <div dangerouslySetInnerHTML={{ __html: empresa.missaoVisaoValores }} />                              </p>
-                          </div>
-                      </div>                    
-                  </div>
-        );
-      case 'cotacoes':
-        return  (<div>
-                  
-                </div>
-        )
-      case 'concursos':
-        return <p className="text-gray-500">Aqui você verá os concursos da empresa.</p>;
-        case 'configuracoes':
-          return <div className="text-gray-500">
-      <div className="mb-4">
-        <label className="block text-gray-700 mb-2">Estado:</label>
-        <select
-          className="bg-gray-300 text-black py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          onChange={(e) => handleStatusChange(e.target.value)}
-        >
-          <option value="estado" disabled>Estado</option>
-          <option value="verificado">Verificado</option>
-          <option value="bloqueado">Bloqueado</option>
-          <option value="ativo">Ativo</option>
-        </select>
-      </div>
-
-      {/* Seletor de Setor Público */}
-      <div className="my-4">
-        <label className="block text-gray-700 mb-2">Definir Setor Público:</label>
-        <select
-          id="category"
-          className="w-full p-2 border border-gray-300 rounded-lg"
-          value={selectedSector}
-          onChange={handleSectorChange}
-        >
-          <option value="">Selecione uma categoria</option>
-          {categories.map((cat, index) => (
-            <option key={index} value={cat.name}>
-              {cat.name}
-            </option>
-          ))}
-        </select>
-      </div>
-        <div className="mt-4">
-          <label className="block text-gray-700 mb-2">PAINEL PUBLICO:</label>
-          <select
-            id="action"
-            className="w-full p-2 border border-gray-300 rounded-lg"
-            value={accessAction}
-            onChange={handleAccessActionChange}>
-            <option value="">Selecione uma ação</option>
-            <option value="grant">DAR ACESSO</option>
-            <option value="revoke">REMOVER ACESSO</option>
-          </select>
-        </div>
-      { accessAction && (
-        <div className="mt-4 text-green-600">
-          Você selecionou <strong>{selectedSector}</strong> para <strong>{accessAction === 'grant' ? 'Dar Acesso' : 'Remover Acesso'}</strong>.
-        </div>
-      )}
-        </div>;
-       case 'modulos':
-        return (
-          <div>
-            <h2 className="text-xl font-semibold">Módulos</h2>
-            
-            {/* Lista de Módulos Ativos */}
-            <div className="mt-4">
-              <h3 className="text-lg font-semibold">Módulos Ativos:</h3>
-              {
-                  Object.keys(userModules).length > 0 ? (
-                    <ul className="list-disc pl-6">
-                      {Object.entries(userModules)
-                        .filter(([moduleKey, moduleData]) => moduleData.status === "active") // Filtra módulos com status "active"
-                        .map(([moduleKey, moduleData]) => (
-                          <li key={moduleKey} className="text-gray-700 mb-2">
-                            {/* Botão para expandir/recolher detalhes */}
-                            <button
-                              onClick={() => toggleModuleDetails(moduleKey)}
-                              className="flex items-center justify-between w-full text-left focus:outline-none"
-                            >
-                              <strong>{moduleData.moduleKey}</strong>
-                              <span className="ml-2">
-                                {expandedModules[moduleKey] ? "▼" : "►"}
-                              </span>
-                            </button>
-                            {/* Detalhes do módulo (colapsável) */}
-                            {expandedModules[moduleKey] && (
-                              <div className="ml-4 mt-2 text-sm text-gray-500">
-                                <p>Status: {moduleData.status}</p>
-                                <p>Pago em: {new Date(moduleData.paidAt).toLocaleDateString()}</p>
-                                <p>Saldo :{moduleData.smsCount}</p>
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                    </ul>
-                  ) : (
-                    <p className="text-gray-500">Nenhum módulo ativo encontrado.</p>
-                  )
-                }
+          <div className="space-y-6">
+            <div className="relative">
+              <img 
+                src={empresa.coverUrl || '/default-cover.jpg'} 
+                alt="Capa" 
+                className="w-full h-48 object-cover rounded-lg"
+              />
+              <div className="absolute -bottom-12 left-6">
+                <img 
+                  src={empresa.logoUrl || '/default-logo.png'} 
+                  alt="Logo" 
+                  className="w-24 h-24 object-cover rounded-full border-4 border-white"
+                />
+              </div>
             </div>
-      
-            {/* Componente ModulosComponent */}
-            <ModulosComponent empresa={empresa} activeModules={userModules || {}} />
+
+            <div className="mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <InfoCard title="Nome" value={empresa.nome} />
+              <InfoCard title="Setor" value={empresa.sector} />
+              <InfoCard title="Província" value={empresa.provincia} />
+              <InfoCard title="NUIT" value={empresa.nuit} />
+              <InfoCard title="Contacto" value={empresa.contacto} />
+              <InfoCard title="Email" value={empresa.email} />
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-sm">
+              <SectionHeader title="Sobre" />
+              <p className="text-gray-700 whitespace-pre-line">
+                {empresa.bio || 'Nenhuma informação disponível'}
+              </p>
+            </div>
+
+            {empresa.missaoVisaoValores && (
+              <div className="bg-white p-6 rounded-lg shadow-sm">
+                <SectionHeader title="Missão, Visão e Valores" />
+                <div dangerouslySetInnerHTML={{ __html: empresa.missaoVisaoValores }} />
+              </div>
+            )}
           </div>
         );
-              case 'publicacoes':
-        return <p className="text-gray-500">
-            <div className="mt-6">
-                          <h2 className="text-2xl font-bold mb-4">Publicações</h2>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                              {Object.entries(empresa.publishedPhotos).map(([key, photo]) => (
-                                  <div key={key} className="bg-white p-4 rounded-lg shadow">
-                                      <img src={photo.url} alt={photo.description} className="w-full h-32 object-cover rounded" />
-                                      <p className="mt-2 text-gray-700">{photo.description}</p>
-                                  </div>
-                              ))}
-                          </div>
+
+      case 'modulos':
+        return (
+          <div className="space-y-6">
+            <SectionHeader title="Módulos Ativos" />
+            
+            {Object.keys(userModules).length > 0 ? (
+              <div className="grid grid-cols-1 gap-4">
+                {Object.entries(userModules)
+                  .filter(([_, module]) => module.status === "active")
+                  .map(([key, module]) => (
+                    <div key={key} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                      <div 
+                        className="flex justify-between items-center cursor-pointer"
+                        onClick={() => toggleModuleDetails(key)}
+                      >
+                        <h3 className="font-medium text-gray-800 capitalize">{key.replace('modulo', '')}</h3>
+                        <span className="text-gray-500">
+                          {expandedModules[key] ? '▲' : '▼'}
+                        </span>
                       </div>
-        </p>;
-        case 'historico':
-          return (
-            <div className="bg-gray-100 p-6 rounded-lg">
-              <h2 className="text-xl font-semibold mb-4">Histórico de Pagamentos</h2>
-              {subscriptions.length === 0 ? (
-                <p className="text-gray-500">Nenhum pagamento encontrado.</p>
-              ) : (
-                <table className="w-full text-left">
-                  <thead>
+                      
+                      {expandedModules[key] && (
+                        <div className="mt-3 pl-2 border-l-2 border-blue-200 space-y-2">
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Status:</span> {module.status}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Ativado em:</span> {new Date(module.activatedAt).toLocaleDateString()}
+                          </p>
+                          {module.smsCount && (
+                            <p className="text-sm text-gray-600">
+                              <span className="font-medium">SMS disponíveis:</span> {module.smsCount}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-gray-500">Nenhum módulo ativo</p>
+            )}
+
+            <ModulosComponent empresa={empresa} activeModules={userModules} />
+          </div>
+        );
+
+      case 'configuracoes':
+        return (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg shadow-sm">
+              <SectionHeader title="Configurações da Empresa" />
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Status da Empresa</label>
+                  <select
+                    value={status}
+                    onChange={(e) => handleStatusChange(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Selecione um status</option>
+                    <option value="verificado">Verificado</option>
+                    <option value="bloqueado">Bloqueado</option>
+                    <option value="ativo">Ativo</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Setor Público</label>
+                  <select
+                    value={selectedSector}
+                    onChange={handleSectorChange}
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Selecione um setor</option>
+                    {categories.map((cat, index) => (
+                      <option key={index} value={cat.name}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Acesso ao Painel Público</label>
+                  <select
+                    value={accessAction}
+                    onChange={handleAccessChange}
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Selecione uma ação</option>
+                    <option value="grant">Conceder acesso</option>
+                    <option value="revoke">Revogar acesso</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'historico':
+        return (
+          <div className="space-y-6">
+            <SectionHeader title="Histórico de Pagamentos" />
+            
+            {subscriptions.length > 0 ? (
+              <div className="overflow-x-auto bg-white rounded-lg shadow-sm">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
                     <tr>
-                      <th className="py-2">Plano</th>
-                      <th className="py-2">Valor</th>
-                      <th className="py-2">Método</th>
-                      <th className="py-2">Data de Pagamento</th>
-                      <th className="py-2">Proximo pagamento</th>
-                      <th className="py-2">Status</th>
-                      <th className="py-2">#</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plano</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Método</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ações</th>
                     </tr>
                   </thead>
-                  <tbody>
-                  {subscriptions.map((sub, index) => (
-                    <tr key={index} className="border-t">
-                      <td className="py-2">{sub?.plan?.name || 'N/A'}</td>
-                      <td className="py-2">{sub.payment.amount} MT</td>
-                      <td className="py-2">{sub.payment.method}</td>
-                      <td className="py-2">{new Date(sub.startDate).toLocaleDateString()}</td>
-                      <td className="py-2">{new Date(sub.expiryDate).toLocaleDateString()}</td>
-                      <td className="py-2">{sub.status}</td>
-                      <td className="py-2">
-                        <button 
-                          onClick={() => gerarFatura(sub)} 
-                          className="bg-blue-500 text-white py-1 px-2 rounded">
-                          Download Fatura
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {subscriptions.map((sub, index) => (
+                      <tr key={index}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{sub.plan?.name || 'N/A'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{sub.payment.amount} MT</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 capitalize">{sub.payment.method}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                          {new Date(sub.startDate).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            sub.status === 'active' ? 'bg-green-100 text-green-800' :
+                            sub.status === 'expired' ? 'bg-red-100 text-red-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {sub.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <button
+                            onClick={() => gerarFatura(sub)}
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            Baixar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
-              )}
-            </div>
-          );
-        ;
+              </div>
+            ) : (
+              <p className="text-gray-500">Nenhum histórico de pagamento encontrado</p>
+            )}
+          </div>
+        );
+
       default:
-        return null;
+        return (
+          <div className="text-center py-10">
+            <p className="text-gray-500">Conteúdo não disponível</p>
+          </div>
+        );
     }
   };
 
   return (
-    <div className="flex-1 p-6">
-        <Snackbar
-        open={snackbarOpen}
-        autoHideDuration={5000}
+    <div className="container mx-auto px-4 py-6">
+      {/* Cabeçalho */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+        <div className="flex items-center mb-4 md:mb-0">
+          <img
+            src={empresa.logoUrl || '/default-logo.png'}
+            alt="Logo"
+            className="w-16 h-16 rounded-full mr-4 object-cover border border-gray-200"
+          />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800">{empresa.nome}</h1>
+            <p className="text-gray-500">{empresa.sector}</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+            empresa.status === 'ativo' ? 'bg-green-100 text-green-800' :
+            empresa.status === 'bloqueado' ? 'bg-red-100 text-red-800' :
+            'bg-blue-100 text-blue-800'
+          }`}>
+            {empresa.status || 'Sem status'}
+          </span>
+        </div>
+      </div>
+
+      {/* Abas */}
+      <div className="border-b border-gray-200 mb-6">
+        <nav className="flex space-x-2 overflow-x-auto">
+          <TabButton 
+            active={activeTab === 'inicio'} 
+            onClick={() => setActiveTab('inicio')}
+          >
+            Visão Geral
+          </TabButton>
+          <TabButton 
+            active={activeTab === 'modulos'} 
+            onClick={() => setActiveTab('modulos')}
+          >
+            Módulos
+          </TabButton>
+          <TabButton 
+            active={activeTab === 'configuracoes'} 
+            onClick={() => setActiveTab('configuracoes')}
+          >
+            Configurações
+          </TabButton>
+          <TabButton 
+            active={activeTab === 'historico'} 
+            onClick={() => setActiveTab('historico')}
+          >
+            Histórico
+          </TabButton>
+        </nav>
+      </div>
+
+      {/* Conteúdo */}
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        {renderTabContent()}
+      </div>
+
+      {/* Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
         onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={handleSnackbarClose}
-          severity={snackbarSeverity}
+          severity={snackbar.severity}
           sx={{ width: '100%' }}
         >
-          {snackbarMessage}
+          {snackbar.message}
         </Alert>
       </Snackbar>
-      <div className="max-w-screen-xl mx-auto bg-white rounded-xl shadow-lg">
-        <div className="flex justify-between items-center mb-6 p-6 bg-gray-100 rounded-t-xl">
-          <div className="flex items-center">
-            {empresa.logo && (
-              <img
-                src={empresa.logo}
-                alt="Logotipo"
-                className="w-12 h-12 mr-4 rounded-full"
-              />
-            )}{' '}
-            <h1 className="text-2xl font-bold text-gray-800">{empresa.nome}</h1>{' '}
-          </div>
-          <div>
-
-           
-    </div>     </div>
-
-        <div className="mb-6 p-6">
-          <ul className="flex border-b">
-            <li className={`mr-6 ${activeTab === 'inicio' ? 'border-b-2 border-black' : ''}`}>
-              <button onClick={() => setActiveTab('inicio')} className="text-gray-800 font-semibold">
-                Início
-              </button>
-            </li>
-            <li className={`mr-6 ${activeTab === 'cotacoes' ? 'border-b-2 border-black' : ''}`}>
-              <button onClick={() => setActiveTab('cotacoes')} className="text-gray-800 font-semibold">
-                Cotações
-              </button>
-            </li>
-            <li className={`mr-6 ${activeTab === 'concursos' ? 'border-b-2 border-black' : ''}`}>
-              <button onClick={() => setActiveTab('concursos')} className="text-gray-800 font-semibold">
-                Concursos
-              </button>
-            </li>
-            <li className={`mr-6 ${activeTab === 'modulos' ? 'border-b-2 border-black' : ''}`}>
-              <button onClick={() => setActiveTab('modulos')} className="text-gray-800 font-semibold">
-                Módulos
-              </button>
-            </li>
-            <li className={`mr-6 ${activeTab === 'publicacoes' ? 'border-b-2 border-black' : ''}`}>
-              <button onClick={() => setActiveTab('publicacoes')} className="text-gray-800 font-semibold">
-                Publicações
-              </button>
-            </li>
-            <li className={`mr-6 ${activeTab === 'configuracoes' ? 'border-b-2 border-black' : ''}`}>
-              <button onClick={() => setActiveTab('configuracoes')} className="text-gray-800 font-semibold">
-                Configuracoes
-              </button>
-            </li>
-            
-            <li className={`mr-6 ${activeTab === 'historico' ? 'border-b-2 border-black' : ''}`}>
-              <button onClick={() => setActiveTab('historico')} className="text-gray-800 font-semibold">
-                Historico de pagamentos
-              </button>
-            </li>
-          </ul>
-        </div>
-
-        <div className="p-6 bg-gray-50 rounded-b-xl">{renderTabContent()}</div>
-      </div>
-
-     
     </div>
-    
   );
 };
 
