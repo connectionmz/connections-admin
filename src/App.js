@@ -22,6 +22,8 @@ import Validacoes from './components/Validacoes';
 import CadastroEmpresa from './components/CadastroEmpresa'
 import { getUserData } from './components/utils/utils'
 import Sectores from './components/Modulos'
+import Denuncias from './components/Denuncias'
+import Publicacoes from './components/Publicacoes'
 
 // Componente de rota privada
 function PrivateRoute({ children, allowedRoles }) {
@@ -106,6 +108,8 @@ const Sidebar = () => {
     { to: "/cotacoes", label: "Cotações", roles: ["admin", "gestor de cotações"] },
     { to: "/sectores", label: "Sectores", roles: ["admin", "gestor de cotações"] },
     { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
+    { to: "/denuncias", label: "Denuncias", roles: ["admin"] },
+    { to: "/publicacoes", label: "Publicacoes", roles: ["admin"] },
     { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin"] },
   ]
   return (
@@ -143,10 +147,12 @@ function App() {
             <Route path="/blog" element={<PrivateRoute allowedRoles={['admin', 'gestor de cotações']}><Publicidade /></PrivateRoute>} />
             <Route path="/servicos" element={<PrivateRoute allowedRoles={['admin', 'gestor de serviços']}><ServicoxExternos /></PrivateRoute>} />
             <Route path="/anuncios" element={<PrivateRoute allowedRoles={['admin', 'contabilista']}><Anuncios /></PrivateRoute>} />
-            <Route path="/sectores" element={<PrivateRoute allowedRoles={['admin']}><Sectores /></PrivateRoute>} />sectores
+            <Route path="/sectores" element={<PrivateRoute allowedRoles={['admin']}><Sectores /></PrivateRoute>} />
             <Route path="/usuarios" element={<PrivateRoute allowedRoles={['admin']}><UsuariosOffline /></PrivateRoute>} />
+            <Route path="/denuncias" element={<PrivateRoute allowedRoles={['admin']}><Denuncias /></PrivateRoute>} />
             <Route path="/cotacoes" element={<PrivateRoute allowedRoles={['admin','gestor de cotações']}><Cotacoes /></PrivateRoute>} />
             <Route path="/utilizadores" element={<PrivateRoute allowedRoles={['admin']}><Utilizadores /></PrivateRoute>} />
+            <Route path="/publicacoes" element={<PrivateRoute allowedRoles={['admin']}><Publicacoes /></PrivateRoute>} />
             <Route path="/parceiros" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Parceiros /></PrivateRoute>} />
             <Route path="/empresas/:id" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><EmpresaDetalhes /></PrivateRoute>} />
             <Route path="/login" element={<LoginModal />} />

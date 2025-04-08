@@ -2,20 +2,27 @@ import { useEffect, useState } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../../fb';
 
-const useEmpresasCount = () => {
-  const [empresasCount, setEmpresasCount] = useState(0);
+const useEmpresas = (id = null) => {
+  const [empresas, setEmpresas] = useState(null);
 
   useEffect(() => {
     const empresasRef = ref(db, 'company');
     const unsubscribe = onValue(empresasRef, (snapshot) => {
       const data = snapshot.val();
-      setEmpresasCount(data ? Object.keys(data).length : 0);
+
+      if (id) {
+        // Retorna só os dados da empresa com o ID fornecido
+        setEmpresas(data?.[id] || null);
+      } else {
+        // Retorna todas as empresas como objeto ou array
+        setEmpresas(data || {});
+      }
     });
 
-    return () => unsubscribe(); // Cleanup na desmontagem
-  }, []);
+    return () => unsubscribe();
+  }, [id]);
 
-  return empresasCount;
+  return empresas;
 };
 
-export default useEmpresasCount;
+export default useEmpresas;
