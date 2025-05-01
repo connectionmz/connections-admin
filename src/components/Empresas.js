@@ -1,233 +1,382 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ref, get, remove, onValue } from 'firebase/database';
+import { ref, get, onValue } from 'firebase/database';
 import { db } from '../fb';
 import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
-const Empresas = () => {
+const EmpresasDashboard = () => {
+  // Estados para dados e filtros
   const [empresas, setEmpresas] = useState([]);
-  const [filteredEmpresas, setFilteredEmpresas] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [provincias, setProvincias] = useState([]);
   const [sectores, setSectores] = useState([]);
   const [tiposEntidades, setTiposEntidades] = useState([]);
-  const [sectorFilter, setSectorFilter] = useState('');
-  const [provinceFilter, setProvinceFilter] = useState('');
-  const [tipoEntidadeFilter, setTipoEntidadeFilter] = useState('');
+  const [filters, setFilters] = useState({
+    sector: '',
+    provincia: '',
+    tipoEntidade: ''
+  });
+  const [loading, setLoading] = useState(true);
 
-  const fetchEmpresasComCustomSector = async () => {
-    try {
-      const snapshot = await get(ref(db, "company"));
-      const data = snapshot.val();
-  
-      if (data) {
-        // Filtrar empresas cujo sector é "outro"
-        const empresasFiltradas = Object.values(data).filter(
-          (empresa) => empresa.sector?.toLowerCase() === "outro"
-        );
-  
-        // Remover empresas com customSector duplicado
-        const empresasUnicas = [];
-        const customSectorsVistos = new Set();
-  
-        empresasFiltradas.forEach((empresa) => {
-          if (!customSectorsVistos.has(empresa.customSector)) {
-            customSectorsVistos.add(empresa.customSector);
-            empresasUnicas.push(empresa);
-          }
-        });
-  
-        console.log("Empresas únicas com setor 'outro':", empresasUnicas);
-  
-        // Gerar PDF com a lista de empresas
-        const doc = new jsPDF();
-  
-        // Configurações do PDF
-        const pageHeight = doc.internal.pageSize.getHeight(); // Altura da página
-        const margin = 10; // Margem superior e lateral
-        let y = margin; // Posição inicial no eixo Y
-  
-        // Adicionar título ao PDF
-        doc.setFontSize(18);
-        doc.text("Lista de Empresas com Setor 'Outro'", margin, y);
-        y += 10; // Aumentar a posição Y após o título
-  
-        // Adicionar lista de empresas ao PDF
-        empresasUnicas.forEach((empresa, index) => {
-          // Verificar se o conteúdo excede a altura da página
-          if (y > pageHeight - margin) {
-            doc.addPage(); // Adicionar uma nova página
-            y = margin; // Reiniciar a posição Y para o topo da nova página
-          }
-  
-          doc.setFontSize(12);
-          doc.text(
-            `${index + 1} - ${empresa.customSector || "N/A"}`,
-            margin,
-            y
-          );
-          y += 10; // Aumentar a posição Y para a próxima linha
-        });
-  
-        // Salvar o PDF
-        doc.save("lista_empresas_outro.pdf");
-      } else {
-        console.log("Nenhuma empresa encontrada.");
-      }
-    } catch (error) {
-      console.error("Erro ao buscar detalhes das empresas:", error);
-    }
-  };
-
-  useEffect(() => {
-    const fetchEmpresas = async () => {
-      try {
-        const snapshot = await get(ref(db, 'company'));
-        const data = snapshot.val();
-        if (data) {
-          const empresasList = Object.keys(data).map((key) => ({
-            id: key,
-            ...data[key],
-          }));
-          setEmpresas(empresasList);
-          setFilteredEmpresas(empresasList);
-        }
-      } catch (error) {
-        console.error('Erro ao buscar empresas:', error);
-      }
-    };
-
-    const provinciasRef = ref(db, 'provincias');
-    const sectoresRef = ref(db, 'sectores_de_atividade');
-    const tipoEntidadeRef = ref(db, 'tipos_entidades');
-
-    onValue(provinciasRef, (snapshot) => {
-      const data = snapshot.val();
-      setProvincias(data ? Object.values(data) : []);
-    });
-
-    onValue(sectoresRef, (snapshot) => {
-      const data = snapshot.val();
-      setSectores(data ? Object.values(data) : []);
-    });
-
-    onValue(tipoEntidadeRef, (snapshot) => {
-      const data = snapshot.val();
-      setTiposEntidades(data ? Object.values(data) : []);
-    });
-
-    fetchEmpresas();
-  }, []);
-
-  useEffect(() => {
-    const filtered = empresas.filter((empresa) => {
+  // Filtragem otimizada com useMemo
+  const filteredEmpresas = useMemo(() => {
+    return empresas.filter((empresa) => {
       const nome = empresa.nome || '';
       const nuit = empresa.nuit || '';
-      const matchesSearch =
+      
+      const matchesSearch = 
         nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
         nuit.includes(searchTerm);
 
-      const matchesSector = sectorFilter === '' || empresa.sector === sectorFilter;
-      const matchesProvince = provinceFilter === '' || empresa.provincia === provinceFilter;
-      const matchesEntidade = tipoEntidadeFilter === '' || empresa.tipoEntidade === tipoEntidadeFilter;
+      const matchesSector = !filters.sector || empresa.sector === filters.sector;
+      const matchesProvince = !filters.provincia || empresa.provincia === filters.provincia;
+      const matchesEntidade = !filters.tipoEntidade || empresa.tipoEntidade === filters.tipoEntidade;
 
       return matchesSearch && matchesSector && matchesProvince && matchesEntidade;
     });
+  }, [empresas, searchTerm, filters]);
 
-    setFilteredEmpresas(filtered);
-  }, [searchTerm, sectorFilter, provinceFilter, tipoEntidadeFilter, empresas]);
+  // Buscar dados iniciais
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        const empresasSnapshot = await get(ref(db, 'company'));
+        const empresasData = empresasSnapshot.val();
+        const empresasList = empresasData ? 
+          Object.entries(empresasData).map(([id, data]) => ({ id, ...data })) : 
+          [];
+        
+        setEmpresas(empresasList);
 
-  const handleDelete = async (id) => {
-    try {
-      await remove(ref(db, `company/${id}`));
-      setEmpresas((prev) => prev.filter((empresa) => empresa.id !== id));
-      setFilteredEmpresas((prev) => prev.filter((empresa) => empresa.id !== id));
-    } catch (error) {
-      console.error('Erro ao eliminar empresa:', error);
+        const provinciasRef = ref(db, 'provincias');
+        const sectoresRef = ref(db, 'sectores_de_atividade');
+        const tipoEntidadeRef = ref(db, 'tipos_entidades');
+
+        onValue(provinciasRef, (snapshot) => {
+          const data = snapshot.val();
+          setProvincias(data ? Object.values(data) : []);
+        });
+
+        onValue(sectoresRef, (snapshot) => {
+          const data = snapshot.val();
+          setSectores(data ? Object.values(data) : []);
+        });
+
+        onValue(tipoEntidadeRef, (snapshot) => {
+          const data = snapshot.val();
+          setTiposEntidades(data ? Object.values(data) : []);
+        });
+
+      } catch (error) {
+        console.error('Erro ao buscar dados:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Gerar relatório PDF
+  const generateCustomSectorReport = () => {
+    const empresasOutro = empresas.filter(empresa => 
+      empresa.sector?.toLowerCase() === "outro"
+    );
+
+    if (empresasOutro.length === 0) {
+      alert('Nenhuma empresa com setor "outro" encontrada.');
+      return;
     }
+
+    const doc = new jsPDF();
+    
+    doc.setFontSize(16);
+    doc.text('Relatório de Empresas com Setor "Outro"', 14, 15);
+    
+    const headers = [['#', 'Nome', 'NUIT', 'Setor Personalizado', 'Província']];
+    
+    const data = empresasOutro.map((empresa, index) => [
+      index + 1,
+      empresa.nome || 'N/A',
+      empresa.nuit || 'N/A',
+      empresa.customSector || 'N/A',
+      empresa.provincia || 'N/A'
+    ]);
+
+    doc.autoTable({
+      head: headers,
+      body: data,
+      startY: 20,
+      styles: { fontSize: 10 },
+      headStyles: { fillColor: [22, 160, 133] },
+      columnStyles: {
+        0: { cellWidth: 10 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 30 },
+        3: { cellWidth: 50 },
+        4: { cellWidth: 30 }
+      }
+    });
+
+    doc.save('empresas_setor_outro.pdf');
   };
 
-  const handleSectorChange = (e) => setSectorFilter(e.target.value);
-  const handleProvinceChange = (e) => setProvinceFilter(e.target.value);
-  const handleEntidadeChange = (e) => setTipoEntidadeFilter(e.target.value);
+  // Atualizar filtros
+  const handleFilterChange = (filterName, value) => {
+    setFilters(prev => ({
+      ...prev,
+      [filterName]: value
+    }));
+  };
 
-  const inputStyles = "border border-gray-300 p-2 rounded-lg";
+  // Estatísticas para o dashboard
+  const stats = useMemo(() => {
+    const totalEmpresas = empresas.length;
+    const empresasOutro = empresas.filter(e => e.sector?.toLowerCase() === "outro").length;
+    const empresasPorProvincia = provincias.map(p => ({
+      provincia: p.provincia,
+      count: empresas.filter(e => e.provincia === p.provincia).length
+    })).sort((a, b) => b.count - a.count).slice(0, 3);
+
+    return { totalEmpresas, empresasOutro, empresasPorProvincia };
+  }, [empresas, provincias]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">Empresas</h1>
+    <div className="min-h-screen bg-gray-100">
+      {/* Header */}
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center">
+            <h1 className="text-3xl font-bold text-gray-900">Dashboard de Empresas</h1>
+            <button
+              onClick={generateCustomSectorReport}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors flex items-center"
+            >
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Exportar Relatório
+            </button>
+          </div>
+        </div>
+      </header>
 
-      <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <input
-          type="text"
-          placeholder="Pesquisar por nome ou NUIT"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className={inputStyles}
-        />
-
-        <select value={sectorFilter} onChange={handleSectorChange} className={inputStyles}>
-          <option value="">Todos os setores</option>
-          {sectores.map((s, index) => (
-            <option key={index} value={s.setor}>
-              {s.setor}
-            </option>
-          ))}
-        </select>
-
-        <select value={provinceFilter} onChange={handleProvinceChange} className={inputStyles}>
-          <option value="">Todas as províncias</option>
-          {provincias.map((prov, index) => (
-            <option key={index} value={prov.provincia}>
-              {prov.provincia}
-            </option>
-          ))}
-        </select>
-
-        <select value={tipoEntidadeFilter} onChange={handleEntidadeChange} className={inputStyles}>
-          <option value="">Todos os tipos de entidade</option>
-          {tiposEntidades.map((ent, index) => (
-            <option key={index} value={ent.tipo}>
-              {ent.tipo}
-            </option>
-          ))}
-        </select>
-
-        <button
-          onClick={fetchEmpresasComCustomSector}
-          className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-        >
-          Gerar PDF de Empresas com Setor "Outro"
-        </button>
-      </div>
-
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Resultados da Pesquisa</h2>
-        <ul>
-          {filteredEmpresas.length > 0 ? (
-            filteredEmpresas.map((empresa) => (
-              <li key={empresa.id} className="mb-2 p-4 bg-gray-100 rounded-lg shadow hover:bg-gray-200">
-                <div className="flex justify-between items-center">
-                  <Link to={`/empresas/${empresa.id}`} className="block">
-                    <p className="font-semibold">{empresa.nome || 'Nome não disponível'}</p>
-                    <p className="text-sm text-gray-500">NUIT: {empresa.nuit || 'Não disponível'}</p>
-                  </Link>
-                  <button
-                    onClick={() => handleDelete(empresa.id)}
-                    className="bg-red-500 text-white px-3 py-1 rounded-lg hover:bg-red-600"
-                  >
-                    Eliminar
-                  </button>
+      {/* Conteúdo Principal */}
+      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {/* Cards de Estatísticas */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="px-4 py-5 sm:p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-indigo-500 rounded-md p-3">
+                  <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
                 </div>
-              </li>
-            ))
+                <div className="ml-5 w-0 flex-1">
+                  <dt className="text-sm font-medium text-gray-500 truncate">Total de Empresas</dt>
+                  <dd className="flex items-baseline">
+                    <div className="text-2xl font-semibold text-gray-900">{stats.totalEmpresas}</div>
+                  </dd>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="px-4 py-5 sm:p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-green-500 rounded-md p-3">
+                  <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dt className="text-sm font-medium text-gray-500 truncate">Setor "Outro"</dt>
+                  <dd className="flex items-baseline">
+                    <div className="text-2xl font-semibold text-gray-900">{stats.empresasOutro}</div>
+                  </dd>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="px-4 py-5 sm:p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-blue-500 rounded-md p-3">
+                  <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dt className="text-sm font-medium text-gray-500 truncate">Top Províncias</dt>
+                  <dd className="text-sm text-gray-900">
+                    {stats.empresasPorProvincia.map((p, i) => (
+                      <div key={i} className="flex justify-between">
+                        <span>{p.provincia}</span>
+                        <span className="font-medium">{p.count}</span>
+                      </div>
+                    ))}
+                  </dd>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Filtros */}
+        <div className="bg-white shadow rounded-lg mb-8">
+          <div className="px-4 py-5 sm:p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Filtrar Empresas</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="col-span-1 md:col-span-2">
+                <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
+                  Pesquisar
+                </label>
+                <input
+                  id="search"
+                  type="text"
+                  placeholder="Nome ou NUIT da empresa"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="sector" className="block text-sm font-medium text-gray-700 mb-1">
+                  Setor
+                </label>
+                <select 
+                  id="sector"
+                  value={filters.sector}
+                  onChange={(e) => handleFilterChange('sector', e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="">Todos</option>
+                  {sectores.map((sector, index) => (
+                    <option key={index} value={sector.setor}>
+                      {sector.setor}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="provincia" className="block text-sm font-medium text-gray-700 mb-1">
+                  Província
+                </label>
+                <select 
+                  id="provincia"
+                  value={filters.provincia}
+                  onChange={(e) => handleFilterChange('provincia', e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="">Todas</option>
+                  {provincias.map((provincia, index) => (
+                    <option key={index} value={provincia.provincia}>
+                      {provincia.provincia}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Lista de Empresas */}
+        <div className="bg-white shadow rounded-lg overflow-hidden">
+          <div className="px-4 py-5 sm:px-6 border-b border-gray-200">
+            <h3 className="text-lg font-medium leading-6 text-gray-900">
+              Lista de Empresas
+              <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                {filteredEmpresas.length} registros
+              </span>
+            </h3>
+          </div>
+          
+          {filteredEmpresas.length > 0 ? (
+            <ul className="divide-y divide-gray-200">
+              {filteredEmpresas.map((empresa) => (
+                <li key={empresa.id} className="hover:bg-gray-50 transition-colors">
+                  <Link 
+                    to={`/empresas/${empresa.id}`} 
+                    className="block px-4 py-4 sm:px-6"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center">
+                          <p className="text-sm font-medium text-indigo-600 truncate mr-2">
+                            {empresa.nome || 'Empresa sem nome'}
+                          </p>
+                          {empresa.sector?.toLowerCase() === "outro" && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              Setor Personalizado
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-col sm:flex-row sm:flex-wrap sm:space-x-6">
+                          <div className="mt-1 flex items-center text-sm text-gray-500">
+                            <svg className="flex-shrink-0 mr-1.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            {empresa.nuit || 'NUIT não informado'}
+                          </div>
+                          <div className="mt-1 flex items-center text-sm text-gray-500">
+                            <svg className="flex-shrink-0 mr-1.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                            </svg>
+                            {empresa.sector || 'Setor não informado'}
+                          </div>
+                          <div className="mt-1 flex items-center text-sm text-gray-500">
+                            <svg className="flex-shrink-0 mr-1.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            {empresa.provincia || 'Província não informada'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="ml-4 flex-shrink-0">
+                        <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <p>Nenhuma empresa encontrada.</p>
+            <div className="p-12 text-center">
+              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h3 className="mt-2 text-lg font-medium text-gray-900">Nenhuma empresa encontrada</h3>
+              <p className="mt-1 text-gray-500">
+                {searchTerm || Object.values(filters).some(f => f) 
+                  ? "Tente ajustar seus filtros de pesquisa" 
+                  : "Nenhuma empresa cadastrada no sistema"}
+              </p>
+            </div>
           )}
-        </ul>
-      </div>
+        </div>
+      </main>
     </div>
   );
 };
 
-export default Empresas;
+export default EmpresasDashboard;

@@ -27,9 +27,62 @@ ChartJS.register(
   Legend
 );
 
+// Subcomponente: Card de Resumo
+const SummaryCard = ({ title, value, description, color }) => (
+  <div className="bg-white p-6 rounded-lg shadow-md">
+    <h3 className="text-lg font-semibold text-gray-700 mb-2">{title}</h3>
+    <p className={`text-4xl font-bold text-${color}-600`}>{value}</p>
+    <p className="text-sm text-gray-500 mt-2">{description}</p>
+  </div>
+);
+
+// Subcomponente: Gráfico
+const ChartComponent = ({ type, data, options, title }) => (
+  <div className="bg-white p-6 rounded-lg shadow-md">
+    <h3 className="text-xl font-semibold text-gray-800 mb-4">{title}</h3>
+    <div className="h-80">
+      {type === 'line' && <Line data={data} options={options} />}
+      {type === 'pie' && <Pie data={data} options={options} />}
+      {type === 'bar' && <Bar data={data} options={options} />}
+    </div>
+  </div>
+);
+
+// Subcomponente: Tabela de Empresas
+const CompanyTable = ({ empresas }) => (
+  <div className="mt-8 bg-white rounded-lg shadow-md overflow-hidden">
+    <div className="p-4 border-b">
+      <h3 className="text-lg font-semibold text-gray-800">Últimas Empresas Registradas</h3>
+    </div>
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Setor</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Província</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contato</th>
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {empresas.slice(0, 5).map((empresa, index) => (
+            <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{empresa.nome}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{empresa.sector || 'Não especificado'}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{empresa.provincia || 'Não especificado'}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{empresa.contacto || 'Não disponível'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+);
+
 const Dashboard = () => {
   const [empresas, setEmpresas] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [stats, setStats] = useState({
     total: 0,
     porProvincia: {},
@@ -41,39 +94,37 @@ const Dashboard = () => {
     const empresasRef = ref(db, 'company');
     
     const unsubscribe = onValue(empresasRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const empresasArray = Object.values(data);
-        setEmpresas(empresasArray);
-        calcularEstatisticas(empresasArray);
-      } else {
-        setEmpresas([]);
+      try {
+        const data = snapshot.val();
+        if (data) {
+          const empresasArray = Object.values(data);
+          setEmpresas(empresasArray);
+          calcularEstatisticas(empresasArray);
+        } else {
+          setEmpresas([]);
+        }
+        setLoading(false);
+      } catch (err) {
+        setError('Erro ao carregar os dados das empresas.');
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
 
   const calcularEstatisticas = (empresas) => {
-    // Total de empresas
     const total = empresas.length;
-    
-    // Por província
     const porProvincia = {};
+    const porSetor = {};
+
     empresas.forEach(emp => {
       const provincia = emp.provincia || 'Não especificado';
-      porProvincia[provincia] = (porProvincia[provincia] || 0) + 1;
-    });
-    
-    // Por setor
-    const porSetor = {};
-    empresas.forEach(emp => {
       const setor = emp.sector || 'Não especificado';
+      porProvincia[provincia] = (porProvincia[provincia] || 0) + 1;
       porSetor[setor] = (porSetor[setor] || 0) + 1;
     });
-    
-    // Crescimento mensal (simulado - ajuste conforme sua estrutura de dados)
+
     const crescimento = [
       { mes: 'Jan', total: Math.floor(total * 0.7) },
       { mes: 'Fev', total: Math.floor(total * 0.8) },
@@ -83,12 +134,7 @@ const Dashboard = () => {
       { mes: 'Jun', total: total },
     ];
 
-    setStats({
-      total,
-      porProvincia,
-      porSetor,
-      crescimento
-    });
+    setStats({ total, porProvincia, porSetor, crescimento });
   };
 
   // Dados para os gráficos
@@ -119,14 +165,6 @@ const Dashboard = () => {
           'rgba(153, 102, 255, 0.7)',
           'rgba(255, 159, 64, 0.7)',
         ],
-        borderColor: [
-          'rgba(255, 99, 132, 1)',
-          'rgba(54, 162, 235, 1)',
-          'rgba(255, 206, 86, 1)',
-          'rgba(75, 192, 192, 1)',
-          'rgba(153, 102, 255, 1)',
-          'rgba(255, 159, 64, 1)',
-        ],
         borderWidth: 1,
       }
     ]
@@ -153,132 +191,70 @@ const Dashboard = () => {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <p className="text-red-500 text-lg font-semibold">{error}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <h1 className="text-3xl font-bold text-gray-800 mb-8">Dashboard de Empresas</h1>
       
       {/* Cards de Resumo */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Total de Empresas</h3>
-          <p className="text-4xl font-bold text-blue-600">{stats.total}</p>
-          <p className="text-sm text-gray-500 mt-2">Registradas no sistema</p>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Províncias</h3>
-          <p className="text-4xl font-bold text-green-600">{Object.keys(stats.porProvincia).length}</p>
-          <p className="text-sm text-gray-500 mt-2">Províncias com empresas</p>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Setores</h3>
-          <p className="text-4xl font-bold text-purple-600">{Object.keys(stats.porSetor).length}</p>
-          <p className="text-sm text-gray-500 mt-2">Diferentes setores</p>
-        </div>
+        <SummaryCard title="Total de Empresas" value={stats.total} description="Registradas no sistema" color="blue" />
+        <SummaryCard title="Províncias" value={Object.keys(stats.porProvincia).length} description="Províncias com empresas" color="green" />
+        <SummaryCard title="Setores" value={Object.keys(stats.porSetor).length} description="Diferentes setores" color="purple" />
       </div>
       
       {/* Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h3 className="text-xl font-semibold text-gray-800 mb-4">Crescimento Mensal</h3>
-          <div className="h-80">
-            <Line 
-              data={crescimentoData} 
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    position: 'top',
-                  },
-                  title: {
-                    display: true,
-                    text: 'Novas Empresas por Mês',
-                  },
-                },
-              }}
-            />
-          </div>
-        </div>
+        <ChartComponent 
+          type="line" 
+          data={crescimentoData} 
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'top' },
+              title: { display: true, text: 'Novas Empresas por Mês' },
+            },
+          }} 
+          title="Crescimento Mensal" 
+        />
         
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <h3 className="text-xl font-semibold text-gray-800 mb-4">Distribuição por Província</h3>
-          <div className="h-80">
-            <Pie 
-              data={provinciasData} 
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    position: 'right',
-                  },
-                },
-              }}
-            />
-          </div>
-        </div>
+        <ChartComponent 
+          type="pie" 
+          data={provinciasData} 
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'right' } },
+          }} 
+          title="Distribuição por Província" 
+        />
       </div>
       
-      <div className="bg-white p-6 rounded-lg shadow-md">
-        <h3 className="text-xl font-semibold text-gray-800 mb-4">Empresas por Setor de Atuação</h3>
-        <div className="h-96">
-          <Bar
-            data={setoresData}
-            options={{
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: {
-                legend: {
-                  position: 'top',
-                },
-                title: {
-                  display: true,
-                  text: 'Distribuição por Setor',
-                },
-              },
-              scales: {
-                y: {
-                  beginAtZero: true,
-                  ticks: {
-                    stepSize: 1
-                  }
-                }
-              }
-            }}
-          />
-        </div>
-      </div>
+      <ChartComponent 
+        type="bar" 
+        data={setoresData} 
+        options={{
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: 'Distribuição por Setor' },
+          },
+          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } },
+        }} 
+        title="Empresas por Setor de Atuação" 
+      />
       
       {/* Tabela com as últimas empresas */}
-      <div className="mt-8 bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="p-4 border-b">
-          <h3 className="text-lg font-semibold text-gray-800">Últimas Empresas Registradas</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Setor</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Província</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contacto</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {empresas.slice(0, 5).map((empresa, index) => (
-                <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{empresa.nome}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{empresa.sector || 'Não especificado'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{empresa.provincia || 'Não especificado'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{empresa.contacto || 'Não disponível'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <CompanyTable empresas={empresas} />
     </div>
   );
 };
