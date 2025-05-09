@@ -35,8 +35,6 @@ function PrivateRoute({ children, allowedRoles }) {
   useEffect(() => {
     const userData = getUserData();
 
-    console.log(userData)
-    
     if (userData) {
       setUser(userData);
       setRole(userData.role);
