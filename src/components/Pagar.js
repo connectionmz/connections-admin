@@ -5,9 +5,9 @@ import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'fi
 import { FaSearch, FaUpload, FaTrash, FaCheck, FaTimes, FaFilePdf, FaFileImage, FaFileAlt, FaBuilding, FaPhone, FaEnvelope, FaUser, FaCalendarAlt, FaMoneyBillWave } from 'react-icons/fa';
 import { saveAs } from 'file-saver';
 import moment from 'moment';
-import 'moment/locale/pt'; // Configura moment.js para português
+import 'moment/locale/pt'; 
 
-moment.locale('pt'); // Define o idioma como português
+moment.locale('pt');
 
 const Pagar = ({ user }) => {
   const [metodo, setMetodo] = useState('M-pesa');
@@ -23,7 +23,6 @@ const Pagar = ({ user }) => {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [contactoOpcional, setContactoOpcional] = useState('');
 
-  // Carregar pagamentos do banco de dados
   useEffect(() => {
     const paymentsRef = ref(db, 'payments');
     const unsubscribe = onValue(paymentsRef, (snapshot) => {
@@ -33,7 +32,6 @@ const Pagar = ({ user }) => {
           id: key,
           ...data[key]
         }));
-        // Ordenar por data (mais recente primeiro)
         paymentsArray.sort((a, b) => b.timestamp - a.timestamp);
         setPayments(paymentsArray);
       } else {
@@ -44,16 +42,13 @@ const Pagar = ({ user }) => {
     return () => unsubscribe();
   }, []);
 
-  // Filtrar pagamentos
   useEffect(() => {
     let result = payments;
     
-    // Filtrar por status
     if (selectedStatus !== 'todos') {
       result = result.filter(payment => payment.status === selectedStatus);
     }
     
-    // Filtrar por termo de busca
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(payment => 
@@ -71,7 +66,6 @@ const Pagar = ({ user }) => {
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Verificar tamanho do arquivo (máx 5MB)
       if (file.size > 5 * 1024 * 1024) {
         alert('O arquivo é muito grande. O tamanho máximo permitido é 5MB.');
         return;
