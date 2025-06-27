@@ -3,21 +3,45 @@ import { useParams } from 'react-router-dom';
 import { ref, get, update } from 'firebase/database'; 
 import { db } from '../fb'; 
 import jsPDF from 'jspdf';
-import { Alert, Snackbar } from '@mui/material';
+import { Alert, Snackbar, Chip, Avatar, Divider } from '@mui/material';
+import { 
+  Business, 
+  Email, 
+  Phone, 
+  LocationOn, 
+  Description, 
+  Event, 
+  VerifiedUser,
+  Block,
+  CheckCircle,
+  AccessTime,
+  MonetizationOn,
+  Receipt,
+  People,
+  Public,
+  Category,
+  CorporateFare,
+  Engineering
+} from '@mui/icons-material';
 import ModulosComponent from './ModulosComponent';
 
 // Componentes de UI reutilizáveis
-const SectionHeader = ({ title }) => (
-  <h2 className="text-xl font-semibold mb-4 text-gray-800">{title}</h2>
+const SectionHeader = ({ title, icon }) => (
+  <div className="flex items-center mb-4">
+    {icon && <span className="mr-2 text-blue-500">{icon}</span>}
+    <h2 className="text-xl font-semibold text-gray-800">{title}</h2>
+  </div>
 );
 
-const InfoCard = ({ title, value, icon }) => (
-  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+const InfoCard = ({ title, value, icon, className = '' }) => (
+  <div className={`bg-white p-4 rounded-lg shadow-sm border border-gray-100 ${className}`}>
     <div className="flex items-center">
       {icon && <span className="mr-2 text-blue-500">{icon}</span>}
       <h3 className="text-sm font-medium text-gray-500">{title}</h3>
     </div>
-    <p className="mt-1 text-lg font-semibold text-gray-800">{value || 'Não disponível'}</p>
+    <p className="mt-1 text-lg font-semibold text-gray-800 break-words">
+      {value || 'Não disponível'}
+    </p>
   </div>
 );
 
@@ -34,12 +58,30 @@ const TabButton = ({ active, onClick, children }) => (
   </button>
 );
 
+const StatusBadge = ({ status }) => {
+  const statusConfig = {
+    ativo: { color: 'bg-green-100 text-green-800', icon: <CheckCircle className="!h-4 !w-4" /> },
+    bloqueado: { color: 'bg-red-100 text-red-800', icon: <Block className="!h-4 !w-4" /> },
+    verificado: { color: 'bg-blue-100 text-blue-800', icon: <VerifiedUser className="!h-4 !w-4" /> },
+    default: { color: 'bg-gray-100 text-gray-800', icon: <AccessTime className="!h-4 !w-4" /> }
+  };
+
+  const config = statusConfig[status] || statusConfig.default;
+
+  return (
+    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${config.color}`}>
+      {config.icon}
+      <span className="ml-1 capitalize">{status || 'Sem status'}</span>
+    </span>
+  );
+};
+
 const EmpresaDetalhes = () => {
   const { id } = useParams();
   const [empresa, setEmpresa] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('inicio');
-  const [userModules, setUserModules] = useState([]);
+  const [userModules, setUserModules] = useState({});
   const [subscriptions, setSubscriptions] = useState([]);
   const [selectedSector, setSelectedSector] = useState('');
   const [categories, setCategories] = useState([]);
@@ -51,6 +93,7 @@ const EmpresaDetalhes = () => {
   });
   const [accessAction, setAccessAction] = useState("");
   const [expandedModules, setExpandedModules] = useState({});
+  const [visits, setVisits] = useState([]);
 
   // Buscar dados da empresa
   useEffect(() => {
@@ -63,8 +106,16 @@ const EmpresaDetalhes = () => {
         
         if (empresaData) {
           setEmpresa(empresaData);
-          setUserModules(empresaData.activeModules || []);
+          setUserModules(empresaData.activeModules || {});
           setStatus(empresaData.status || '');
+          setSelectedSector(empresaData.categoriaExterna || '');
+          
+          // Processar visitas
+          if (empresaData.visitas) {
+            const visitsArray = Object.values(empresaData.visitas);
+            visitsArray.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            setVisits(visitsArray);
+          }
         }
 
         // Buscar categorias
@@ -178,14 +229,15 @@ const EmpresaDetalhes = () => {
   const gerarFatura = (sub) => {
     const doc = new jsPDF();
     doc.setFontSize(16);
-    doc.text(`Fatura: ${sub.plan.name}`, 10, 15);
+    doc.text(`Fatura: ${sub.plan?.name || 'Plano'}`, 10, 15);
     doc.setFontSize(12);
     doc.text(`Empresa: ${empresa.nome}`, 10, 25);
-    doc.text(`Valor: ${sub.payment.amount} MT`, 10, 35);
-    doc.text(`Método: ${sub.payment.method}`, 10, 45);
-    doc.text(`Data: ${new Date(sub.payment.date).toLocaleDateString()}`, 10, 55);
-    doc.text(`Expira em: ${new Date(sub.expiryDate).toLocaleDateString()}`, 10, 65);
-    doc.save(`fatura_${empresa.nome}_${sub.plan.name}.pdf`);
+    doc.text(`NUIT: ${empresa.nuit || 'Não informado'}`, 10, 35);
+    doc.text(`Valor: ${sub.payment?.amount || '0'} MT`, 10, 45);
+    doc.text(`Método: ${sub.payment?.method || 'Não especificado'}`, 10, 55);
+    doc.text(`Data: ${sub.payment?.date ? new Date(sub.payment.date).toLocaleDateString() : 'Não especificada'}`, 10, 65);
+    doc.text(`Expira em: ${sub.expiryDate ? new Date(sub.expiryDate).toLocaleDateString() : 'Não especificada'}`, 10, 75);
+    doc.save(`fatura_${empresa.nome}_${sub.plan?.name || 'plano'}.pdf`);
   };
 
   const handleSnackbarClose = () => {
@@ -230,26 +282,152 @@ const EmpresaDetalhes = () => {
               </div>
             </div>
 
-            <div className="mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <InfoCard title="Nome" value={empresa.nome} />
-              <InfoCard title="Setor" value={empresa.sector} />
-              <InfoCard title="Província" value={empresa.provincia} />
-              <InfoCard title="NUIT" value={empresa.nuit} />
-              <InfoCard title="Contacto" value={empresa.contacto} />
-              <InfoCard title="Email" value={empresa.email} />
+            <div className="mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <InfoCard 
+                title="Nome" 
+                value={empresa.nome} 
+                icon={<Business className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Sigla" 
+                value={empresa.sigla} 
+                icon={<CorporateFare className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Setor" 
+                value={empresa.sector} 
+                icon={<Category className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Tipo de Entidade" 
+                value={empresa.tipoEntidade} 
+                icon={<Engineering className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Província" 
+                value={empresa.provincia} 
+                icon={<LocationOn className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Distrito" 
+                value={empresa.distrito} 
+                icon={<LocationOn className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="NUIT" 
+                value={empresa.nuit} 
+                icon={<Description className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Número de Contribuinte" 
+                value={empresa.nrContriuinte} 
+                icon={<Description className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Contacto" 
+                value={empresa.contacto} 
+                icon={<Phone className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Email" 
+                value={empresa.email} 
+                icon={<Email className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Endereço" 
+                value={empresa.endereco} 
+                icon={<LocationOn className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Data de Criação" 
+                value={empresa.createdAt ? new Date(empresa.createdAt).toLocaleDateString() : 'Não disponível'} 
+                icon={<Event className="!h-5 !w-5" />} 
+              />
+              <InfoCard 
+                title="Capacidade de Produção" 
+                value={empresa.capacidadeDeProducao || empresa.capacidadeProducao || 'Não informado'} 
+                icon={<Engineering className="!h-5 !w-5" />} 
+              />
             </div>
 
             <div className="bg-white p-6 rounded-lg shadow-sm">
-              <SectionHeader title="Sobre" />
-              <p className="text-gray-700 whitespace-pre-line">
-                {empresa.bio || 'Nenhuma informação disponível'}
-              </p>
+              <SectionHeader title="Sobre" icon={<Description className="!h-5 !w-5" />} />
+              <div className="text-gray-700 whitespace-pre-line" dangerouslySetInnerHTML={{ 
+                __html: empresa.bio || '<p>Nenhuma informação disponível</p>' 
+              }} />
             </div>
 
             {empresa.missaoVisaoValores && (
               <div className="bg-white p-6 rounded-lg shadow-sm">
-                <SectionHeader title="Missão, Visão e Valores" />
+                <SectionHeader title="Missão, Visão e Valores" icon={<VerifiedUser className="!h-5 !w-5" />} />
                 <div dangerouslySetInnerHTML={{ __html: empresa.missaoVisaoValores }} />
+              </div>
+            )}
+
+            {empresa.subsectores && empresa.subsectores.length > 0 && (
+              <div className="bg-white p-6 rounded-lg shadow-sm">
+                <SectionHeader title="Subsectores" icon={<Category className="!h-5 !w-5" />} />
+                <div className="flex flex-wrap gap-2">
+                  {empresa.subsectores.map((subsector, index) => (
+                    <Chip key={index} label={subsector} className="m-1" />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {empresa.social && (
+              <div className="bg-white p-6 rounded-lg shadow-sm">
+                <SectionHeader title="Redes Sociais" icon={<Public className="!h-5 !w-5" />} />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <InfoCard 
+                    title="Website" 
+                    value={empresa.social.website ? (
+                      <a href={empresa.social.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        {empresa.social.website}
+                      </a>
+                    ) : 'Não informado'}
+                  />
+                  <InfoCard 
+                    title="WhatsApp" 
+                    value={empresa.social.whatsapp ? (
+                      <a href={empresa.social.whatsapp} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        {empresa.social.whatsapp}
+                      </a>
+                    ) : 'Não informado'}
+                  />
+                  <InfoCard 
+                    title="Facebook" 
+                    value={empresa.social.facebook ? (
+                      <a href={empresa.social.facebook} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        {empresa.social.facebook}
+                      </a>
+                    ) : 'Não informado'}
+                  />
+                  <InfoCard 
+                    title="Instagram" 
+                    value={empresa.social.instagram ? (
+                      <a href={empresa.social.instagram} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        {empresa.social.instagram}
+                      </a>
+                    ) : 'Não informado'}
+                  />
+                  <InfoCard 
+                    title="LinkedIn" 
+                    value={empresa.social.linkedin ? (
+                      <a href={empresa.social.linkedin} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        {empresa.social.linkedin}
+                      </a>
+                    ) : 'Não informado'}
+                  />
+                  <InfoCard 
+                    title="Twitter/X" 
+                    value={empresa.social.x ? (
+                      <a href={empresa.social.x} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                        {empresa.social.x}
+                      </a>
+                    ) : 'Não informado'}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -258,7 +436,7 @@ const EmpresaDetalhes = () => {
       case 'modulos':
         return (
           <div className="space-y-6">
-            <SectionHeader title="Módulos Ativos" />
+            <SectionHeader title="Módulos Ativos" icon={<CheckCircle className="!h-5 !w-5" />} />
             
             {Object.keys(userModules).length > 0 ? (
               <div className="grid grid-cols-1 gap-4">
@@ -270,7 +448,14 @@ const EmpresaDetalhes = () => {
                         className="flex justify-between items-center cursor-pointer"
                         onClick={() => toggleModuleDetails(key)}
                       >
-                        <h3 className="font-medium text-gray-800 capitalize">{key.replace('modulo', '')}</h3>
+                        <div>
+                          <h3 className="font-medium text-gray-800 capitalize">
+                            {key.replace('modulo', 'Módulo ')}
+                          </h3>
+                          <p className="text-sm text-gray-500">
+                            {module.expiresAt ? `Expira em: ${new Date(module.expiresAt).toLocaleDateString()}` : ''}
+                          </p>
+                        </div>
                         <span className="text-gray-500">
                           {expandedModules[key] ? '▲' : '▼'}
                         </span>
@@ -282,9 +467,12 @@ const EmpresaDetalhes = () => {
                             <span className="font-medium">Status:</span> {module.status}
                           </p>
                           <p className="text-sm text-gray-600">
-                            <span className="font-medium">Ativado em:</span> {new Date(module.activatedAt).toLocaleDateString()}
+                            <span className="font-medium">Pago em:</span> {module.paidAt ? new Date(module.paidAt).toLocaleDateString() : 'Não informado'}
                           </p>
-                          {module.smsCount && (
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Expira em:</span> {module.expiresAt ? new Date(module.expiresAt).toLocaleDateString() : 'Não informado'}
+                          </p>
+                          {module.smsCount !== undefined && (
                             <p className="text-sm text-gray-600">
                               <span className="font-medium">SMS disponíveis:</span> {module.smsCount}
                             </p>
@@ -306,7 +494,7 @@ const EmpresaDetalhes = () => {
         return (
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-lg shadow-sm">
-              <SectionHeader title="Configurações da Empresa" />
+              <SectionHeader title="Configurações da Empresa" icon={<Engineering className="!h-5 !w-5" />} />
               
               <div className="space-y-4">
                 <div>
@@ -357,7 +545,7 @@ const EmpresaDetalhes = () => {
       case 'historico':
         return (
           <div className="space-y-6">
-            <SectionHeader title="Histórico de Pagamentos" />
+            <SectionHeader title="Histórico de Pagamentos" icon={<Receipt className="!h-5 !w-5" />} />
             
             {subscriptions.length > 0 ? (
               <div className="overflow-x-auto bg-white rounded-lg shadow-sm">
@@ -368,6 +556,7 @@ const EmpresaDetalhes = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Valor</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Método</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expira em</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ações</th>
                     </tr>
@@ -375,11 +564,20 @@ const EmpresaDetalhes = () => {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {subscriptions.map((sub, index) => (
                       <tr key={index}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{sub.plan?.name || 'N/A'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{sub.payment.amount} MT</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 capitalize">{sub.payment.method}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
-                          {new Date(sub.startDate).toLocaleDateString()}
+                          {sub.plan?.name || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                          {sub.payment?.amount || '0'} MT
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 capitalize">
+                          {sub.payment?.method || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                          {sub.payment?.date ? new Date(sub.payment.date).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                          {sub.expiryDate ? new Date(sub.expiryDate).toLocaleDateString() : 'N/A'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 text-xs rounded-full ${
@@ -393,8 +591,9 @@ const EmpresaDetalhes = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <button
                             onClick={() => gerarFatura(sub)}
-                            className="text-blue-600 hover:text-blue-800"
+                            className="text-blue-600 hover:text-blue-800 flex items-center"
                           >
+                            <Receipt className="!h-4 !w-4 mr-1" />
                             Baixar
                           </button>
                         </td>
@@ -405,6 +604,54 @@ const EmpresaDetalhes = () => {
               </div>
             ) : (
               <p className="text-gray-500">Nenhum histórico de pagamento encontrado</p>
+            )}
+          </div>
+        );
+
+      case 'visitas':
+        return (
+          <div className="space-y-6">
+            <SectionHeader title="Histórico de Visitas" icon={<People className="!h-5 !w-5" />} />
+            
+            {visits.length > 0 ? (
+              <div className="overflow-x-auto bg-white rounded-lg shadow-sm">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Visitante</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data/Hora</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {visits.map((visit, index) => (
+                      <tr key={index}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="flex-shrink-0 h-10 w-10">
+                              <Avatar className="!h-10 !w-10">
+                                {visit.visitorName.charAt(0)}
+                              </Avatar>
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">
+                                {visit.visitorName}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                ID: {visit.visitorId}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {new Date(visit.timestamp).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500">Nenhum registro de visita encontrado</p>
             )}
           </div>
         );
@@ -430,18 +677,21 @@ const EmpresaDetalhes = () => {
           />
           <div>
             <h1 className="text-2xl font-bold text-gray-800">{empresa.nome}</h1>
-            <p className="text-gray-500">{empresa.sector}</p>
+            <p className="text-gray-500">{empresa.sector} • {empresa.distrito}, {empresa.provincia}</p>
           </div>
         </div>
         
         <div className="flex items-center space-x-2">
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-            empresa.status === 'ativo' ? 'bg-green-100 text-green-800' :
-            empresa.status === 'bloqueado' ? 'bg-red-100 text-red-800' :
-            'bg-blue-100 text-blue-800'
-          }`}>
-            {empresa.status || 'Sem status'}
-          </span>
+          <StatusBadge status={empresa.status} />
+          {empresa.subscriptions?.isverify === "true" && (
+            <Chip 
+              icon={<VerifiedUser className="!h-4 !w-4" />}
+              label="Verificada" 
+              color="success" 
+              size="small" 
+              className="!ml-2" 
+            />
+          )}
         </div>
       </div>
 
@@ -461,16 +711,22 @@ const EmpresaDetalhes = () => {
             Módulos
           </TabButton>
           <TabButton 
+            active={activeTab === 'historico'} 
+            onClick={() => setActiveTab('historico')}
+          >
+            Pagamentos
+          </TabButton>
+          <TabButton 
+            active={activeTab === 'visitas'} 
+            onClick={() => setActiveTab('visitas')}
+          >
+            Visitas ({visits.length})
+          </TabButton>
+          <TabButton 
             active={activeTab === 'configuracoes'} 
             onClick={() => setActiveTab('configuracoes')}
           >
             Configurações
-          </TabButton>
-          <TabButton 
-            active={activeTab === 'historico'} 
-            onClick={() => setActiveTab('historico')}
-          >
-            Histórico
           </TabButton>
         </nav>
       </div>

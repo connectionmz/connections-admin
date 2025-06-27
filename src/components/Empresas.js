@@ -37,8 +37,7 @@ const EmpresasDashboard = () => {
     });
   }, [empresas, searchTerm, filters]);
 
-  // Buscar dados iniciais
-  useEffect(() => {
+useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
@@ -46,7 +45,9 @@ const EmpresasDashboard = () => {
         const empresasSnapshot = await get(ref(db, 'company'));
         const empresasData = empresasSnapshot.val();
         const empresasList = empresasData ? 
-          Object.entries(empresasData).map(([id, data]) => ({ id, ...data })) : 
+          Object.entries(empresasData)
+            .map(([id, data]) => ({ id, ...data }))
+            .filter(empresa => empresa.type !== 'singular') : 
           [];
         
         setEmpresas(empresasList);
@@ -80,7 +81,6 @@ const EmpresasDashboard = () => {
     fetchData();
   }, []);
 
-  // Gerar relatório PDF
   const generateCustomSectorReport = () => {
     const empresasOutro = empresas.filter(empresa => 
       empresa.sector?.toLowerCase() === "outro"
@@ -124,7 +124,6 @@ const EmpresasDashboard = () => {
     doc.save('empresas_setor_outro.pdf');
   };
 
-  // Atualizar filtros
   const handleFilterChange = (filterName, value) => {
     setFilters(prev => ({
       ...prev,
@@ -132,7 +131,6 @@ const EmpresasDashboard = () => {
     }));
   };
 
-  // Estatísticas para o dashboard
   const stats = useMemo(() => {
     const totalEmpresas = empresas.length;
     const empresasOutro = empresas.filter(e => e.sector?.toLowerCase() === "outro").length;

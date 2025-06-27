@@ -1,106 +1,142 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ref, get, update, remove } from 'firebase/database';
 import { db } from '../fb';
 import UploadBanner from './UploadBanner';
 
+// Status colors mapping
+const STATUS_COLORS = {
+  pendente: 'bg-yellow-100 text-yellow-800',
+  ativo: 'bg-green-100 text-green-800',
+  notificado: 'bg-blue-100 text-blue-800',
+  bloqueado: 'bg-red-100 text-red-800',
+  arquivado: 'bg-gray-100 text-gray-800'
+};
+
+const STATUS_LABELS = {
+  pendente: 'Pendente',
+  ativo: 'Ativo',
+  notificado: 'Notificado',
+  bloqueado: 'Bloqueado',
+  arquivado: 'Arquivado'
+};
+
 const Anuncios = () => {
-  // Estados principais
-  const [loading, setLoading] = useState(true);
+  // States
   const [anuncios, setAnuncios] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
-  // Estados para UI
-  const [menuOpen, setMenuOpen] = useState(null);
-  const [showModal, setShowModal] = useState(false);
-  const [selectedAnuncio, setSelectedAnuncio] = useState(null);
-  const [notificationReason, setNotificationReason] = useState('');
-  const [activeTab, setActiveTab] = useState('pendentes'); // Tab padrão agora é "pendentes"
-  const [searchTerm, setSearchTerm] = useState('');
-
-  // Buscar anúncios
-  useEffect(() => {
-    const fetchAnuncios = async () => {
-      try {
-        const snapshot = await get(ref(db, `banners`));
-        const data = snapshot.val();
-
-        if (data) {
-          const anunciosArray = await Promise.all(
-            Object.entries(data).map(async ([id, value]) => {
-              let empresa = null;
-              if (value.companyId) {
-                const empresaSnap = await get(ref(db, `company/${value.companyId}`));
-                empresa = empresaSnap.exists() ? empresaSnap.val() : null;
-              }
-
-              return {
-                id,
-                ...value,
-                empresa: empresa,
-                status: value.status || 'pendente',
-                createdAt: value.createdAt || Date.now()
-              };
-            })
-          );
-
-          setAnuncios(anunciosArray);
-        } else {
-          setError('Nenhum anúncio encontrado.');
-        }
-      } catch (error) {
-        console.error('Erro ao buscar anúncios:', error);
-        setError('Erro ao buscar anúncios.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAnuncios();
-  }, []);
-
-  // Filtrar anúncios
-  const filteredAnuncios = anuncios.filter(anuncio => {
-    const matchesTab = 
-      activeTab === 'todos' || 
-      anuncio.status === activeTab ||
-      (activeTab === 'pendentes' && anuncio.status === 'pendente');
-    
-    const matchesSearch = 
-      searchTerm === '' ||
-      anuncio.link?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (anuncio.empresa?.nome && anuncio.empresa.nome.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (anuncio.motivoBloqueio && anuncio.motivoBloqueio.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    return matchesTab && matchesSearch;
+  const [filters, setFilters] = useState({
+    status: 'pendentes',
+    searchTerm: ''
+  });
+  const [actionState, setActionState] = useState({
+    menuOpen: null,
+    showModal: false,
+    selectedAnuncio: null,
+    notificationReason: ''
   });
 
-  // Ações disponíveis
-  const handleAction = async (id, action, reason = '') => {
+  // Tabs configuration
+  const tabs = useMemo(() => [
+    { id: 'pendentes', label: 'Pendentes' },
+    { id: 'ativo', label: 'Ativos' },
+    { id: 'notificado', label: 'Notificados' },
+    { id: 'bloqueado', label: 'Bloqueados' },
+    { id: 'arquivado', label: 'Arquivados' },
+    { id: 'todos', label: 'Todos' }
+  ], []);
+
+  // Fetch anuncios
+  const fetchAnuncios = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snapshot = await get(ref(db, 'banners'));
+      const data = snapshot.val();
+
+      if (data) {
+        const anunciosArray = await Promise.all(
+          Object.entries(data).map(async ([id, value]) => {
+            let empresa = null;
+            if (value.companyId) {
+              const empresaSnap = await get(ref(db, `company/${value.companyId}`));
+              empresa = empresaSnap.exists() ? empresaSnap.val() : null;
+            }
+
+            return {
+              id,
+              ...value,
+              empresa,
+              status: value.status || 'pendente',
+              createdAt: value.createdAt || Date.now()
+            };
+          })
+        );
+
+        setAnuncios(anunciosArray);
+      } else {
+        setError('Nenhum anúncio encontrado.');
+      }
+    } catch (error) {
+      console.error('Erro ao buscar anúncios:', error);
+      setError('Erro ao buscar anúncios.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Filter anuncios
+  const filteredAnuncios = useMemo(() => {
+    return anuncios.filter(anuncio => {
+      const matchesTab = 
+        filters.status === 'todos' || 
+        anuncio.status === filters.status ||
+        (filters.status === 'pendentes' && anuncio.status === 'pendente');
+      
+      const matchesSearch = 
+        filters.searchTerm === '' ||
+        anuncio.link?.toLowerCase().includes(filters.searchTerm.toLowerCase()) ||
+        (anuncio.empresa?.nome && anuncio.empresa.nome.toLowerCase().includes(filters.searchTerm.toLowerCase())) ||
+        (anuncio.motivoBloqueio && anuncio.motivoBloqueio.toLowerCase().includes(filters.searchTerm.toLowerCase()));
+      
+      return matchesTab && matchesSearch;
+    });
+  }, [anuncios, filters]);
+
+  // Stats
+  const stats = useMemo(() => {
+    return {
+      total: anuncios.length,
+      pendentes: anuncios.filter(a => a.status === 'pendente').length,
+      ativos: anuncios.filter(a => a.status === 'ativo').length,
+      notificados: anuncios.filter(a => a.status === 'notificado').length,
+      bloqueados: anuncios.filter(a => a.status === 'bloqueado').length,
+      arquivados: anuncios.filter(a => a.status === 'arquivado').length
+    };
+  }, [anuncios]);
+
+  // Handle actions
+  const handleAction = useCallback(async (id, action, reason = '') => {
     try {
       const updates = {};
       let successMessage = '';
-      let shouldReload = false;
       
       switch(action) {
         case 'eliminar':
           await remove(ref(db, `banners/${id}`));
-          setAnuncios(prev => prev.filter(anuncio => anuncio.id !== id));
+          setAnuncios(prev => prev.filter(a => a.id !== id));
           successMessage = 'Anúncio eliminado com sucesso.';
           break;
           
         case 'verificar':
           updates.status = 'ativo';
           updates.verificadoEm = new Date().toISOString();
-          updates.verificadoPor = 'user123';
           successMessage = 'Anúncio verificado e ativado.';
           break;
           
         case 'aprovar_arquivar':
           updates.status = 'arquivado';
           updates.aprovadoEm = new Date().toISOString();
-          updates.aprovadoPor = 'user123';
           successMessage = 'Anúncio aprovado e arquivado.';
-          shouldReload = true;
           break;
           
         case 'notificar':
@@ -120,7 +156,6 @@ const Anuncios = () => {
         case 'desbloquear':
           updates.status = 'ativo';
           updates.desbloqueadoEm = new Date().toISOString();
-          updates.desbloqueadoPor = 'user123';
           delete updates.motivoBloqueio;
           successMessage = 'Anúncio desbloqueado e ativado.';
           break;
@@ -131,23 +166,7 @@ const Anuncios = () => {
 
       if (Object.keys(updates).length > 0) {
         await update(ref(db, `banners/${id}`), updates);
-        
-        if (shouldReload) {
-          // Recarregar a lista para atualizar a exibição
-          const snapshot = await get(ref(db, `banners`));
-          const data = snapshot.val();
-          if (data) {
-            const anunciosArray = Object.entries(data).map(([id, value]) => ({ id, ...value }));
-            setAnuncios(anunciosArray);
-          }
-        } else {
-          setAnuncios(prev =>
-            prev.map(anuncio =>
-              anuncio.id === id ? { ...anuncio, ...updates } : anuncio
-            )
-          );
-        }
-        
+        setAnuncios(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
         alert(successMessage);
       }
 
@@ -155,30 +174,241 @@ const Anuncios = () => {
       console.error('Erro ao realizar a ação:', error);
       alert('Erro ao realizar a ação.');
     } finally {
-      setMenuOpen(null);
-      setSelectedAnuncio(null);
-      setNotificationReason('');
+      setActionState(prev => ({
+        ...prev,
+        menuOpen: null,
+        selectedAnuncio: null,
+        notificationReason: ''
+      }));
     }
-  };
+  }, []);
 
-  // Cores para os status
-  const statusColors = {
-    pendente: 'bg-yellow-100 text-yellow-800',
-    ativo: 'bg-green-100 text-green-800',
-    notificado: 'bg-blue-100 text-blue-800',
-    bloqueado: 'bg-red-100 text-red-800',
-    arquivado: 'bg-gray-100 text-gray-800'
-  };
+  // Effects
+  useEffect(() => {
+    fetchAnuncios();
+  }, [fetchAnuncios]);
 
-  // Tabs disponíveis
-  const tabs = [
-    { id: 'pendentes', label: 'Pendentes' },
-    { id: 'ativo', label: 'Ativos' },
-    { id: 'notificado', label: 'Notificados' },
-    { id: 'bloqueado', label: 'Bloqueados' },
-    { id: 'arquivado', label: 'Arquivados' },
-    { id: 'todos', label: 'Todos' }
-  ];
+  // Components
+  const StatCard = ({ title, value, color }) => (
+    <div className={`p-4 rounded-lg shadow-sm ${color}`}>
+      <h3 className="text-lg font-medium">{title}</h3>
+      <p className="text-2xl font-bold">{value}</p>
+    </div>
+  );
+
+  const ActionMenu = ({ anuncio, index }) => (
+    <div className="relative inline-block text-left">
+      <button
+        onClick={() => setActionState(prev => ({
+          ...prev,
+          menuOpen: prev.menuOpen === index ? null : index
+        }))}
+        className="inline-flex justify-center items-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200"
+      >
+        <svg className="h-5 w-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+        </svg>
+      </button>
+
+      {actionState.menuOpen === index && (
+        <div className="origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
+          <div className="py-1">
+            {anuncio.status === 'pendente' && (
+              <>
+                <button
+                  onClick={() => handleAction(anuncio.id, 'verificar')}
+                  className="flex items-center w-full px-4 py-2 text-sm text-green-700 hover:bg-green-100"
+                >
+                  <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                  </svg>
+                  Aprovar e Ativar
+                </button>
+                <button
+                  onClick={() => handleAction(anuncio.id, 'aprovar_arquivar')}
+                  className="flex items-center w-full px-4 py-2 text-sm text-green-700 hover:bg-green-100"
+                >
+                  <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                  </svg>
+                  Aprovar e Arquivar
+                </button>
+              </>
+            )}
+            
+            {anuncio.status !== 'bloqueado' && (
+              <button
+                onClick={() => setActionState(prev => ({
+                  ...prev,
+                  selectedAnuncio: anuncio,
+                  notificationReason: anuncio.motivoNotificacao || ''
+                }))}
+                className="flex items-center w-full px-4 py-2 text-sm text-blue-700 hover:bg-blue-100"
+              >
+                <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                {anuncio.status === 'notificado' ? 'Editar Notificação' : 'Notificar Problema'}
+              </button>
+            )}
+            
+            {anuncio.status === 'bloqueado' ? (
+              <button
+                onClick={() => handleAction(anuncio.id, 'desbloquear')}
+                className="flex items-center w-full px-4 py-2 text-sm text-green-700 hover:bg-green-100"
+              >
+                <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Desbloquear
+              </button>
+            ) : (
+              <button
+                onClick={() => setActionState(prev => ({
+                  ...prev,
+                  selectedAnuncio: anuncio,
+                  notificationReason: ''
+                }))}
+                className="flex items-center w-full px-4 py-2 text-sm text-red-700 hover:bg-red-100"
+              >
+                <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                Bloquear
+              </button>
+            )}
+            
+            <button
+              onClick={() => handleAction(anuncio.id, 'eliminar')}
+              className="flex items-center w-full px-4 py-2 text-sm text-red-700 hover:bg-red-100"
+            >
+              <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Excluir
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const NotificationModal = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <div className="p-6">
+          <div className="flex justify-between items-start mb-4">
+            <h3 className="text-lg font-medium">
+              {actionState.selectedAnuncio?.status === 'bloqueado' ? 'Desbloquear Anúncio' : 
+               actionState.selectedAnuncio?.status === 'notificado' ? 'Editar Notificação' : 
+               'Notificar/Bloquear Anúncio'}
+            </h3>
+            <button
+              onClick={() => setActionState(prev => ({
+                ...prev,
+                selectedAnuncio: null,
+                notificationReason: ''
+              }))}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {actionState.selectedAnuncio?.status === 'bloqueado' ? 'Motivo do bloqueio anterior:' : 'Motivo:'}
+            </label>
+            <textarea
+              value={actionState.notificationReason}
+              onChange={(e) => setActionState(prev => ({
+                ...prev,
+                notificationReason: e.target.value
+              }))}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              rows="4"
+              placeholder="Descreva o problema encontrado..."
+              disabled={actionState.selectedAnuncio?.status === 'bloqueado'}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+            {actionState.selectedAnuncio?.status === 'bloqueado' ? (
+              <button
+                onClick={() => handleAction(actionState.selectedAnuncio.id, 'desbloquear')}
+                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md"
+              >
+                Desbloquear
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => handleAction(
+                    actionState.selectedAnuncio.id, 
+                    'notificar', 
+                    actionState.notificationReason
+                  )}
+                  disabled={!actionState.notificationReason}
+                  className={`px-4 py-2 rounded-md ${
+                    !actionState.notificationReason 
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
+                >
+                  Notificar Empresa
+                </button>
+                <button
+                  onClick={() => handleAction(
+                    actionState.selectedAnuncio.id, 
+                    'bloquear', 
+                    actionState.notificationReason
+                  )}
+                  disabled={!actionState.notificationReason}
+                  className={`px-4 py-2 rounded-md ${
+                    !actionState.notificationReason 
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                      : 'bg-red-500 hover:bg-red-600 text-white'
+                  }`}
+                >
+                  Bloquear Anúncio
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const UploadModal = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex justify-between items-start mb-4">
+            <h3 className="text-lg font-medium">Cadastrar Novo Anúncio</h3>
+            <button
+              onClick={() => setActionState(prev => ({ ...prev, showModal: false }))}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <UploadBanner 
+            onSuccess={() => {
+              setActionState(prev => ({ ...prev, showModal: false }));
+              fetchAnuncios();
+            }} 
+            onCancel={() => setActionState(prev => ({ ...prev, showModal: false }))}
+          />
+        </div>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -193,50 +423,82 @@ const Anuncios = () => {
   }
 
   return (
-    <div className="bg-gray-100 p-6 rounded-lg">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <h2 className="text-2xl font-semibold">Gestão de Anúncios</h2>
-        
-        <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
-          <input
-            type="text"
-            placeholder="Pesquisar anúncios..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-md"
-          />
-          <button
-            className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md whitespace-nowrap"
-            onClick={() => setShowModal(true)}
-          >
-            + Novo Anúncio
-          </button>
+    <div className="container mx-auto p-4 md:p-6">
+      <h1 className="text-2xl md:text-3xl font-bold mb-6">Gestão de Anúncios</h1>
+      
+      {/* Statistics */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+        <StatCard 
+          title="Total" 
+          value={stats.total} 
+          color="bg-blue-100 text-blue-800" 
+        />
+        <StatCard 
+          title="Pendentes" 
+          value={stats.pendentes} 
+          color="bg-yellow-100 text-yellow-800" 
+        />
+        <StatCard 
+          title="Ativos" 
+          value={stats.ativos} 
+          color="bg-green-100 text-green-800" 
+        />
+        <StatCard 
+          title="Notificados" 
+          value={stats.notificados} 
+          color="bg-blue-100 text-blue-800" 
+        />
+        <StatCard 
+          title="Bloqueados" 
+          value={stats.bloqueados} 
+          color="bg-red-100 text-red-800" 
+        />
+        <StatCard 
+          title="Arquivados" 
+          value={stats.arquivados} 
+          color="bg-gray-100 text-gray-800" 
+        />
+      </div>
+      
+      {/* Filters */}
+      <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Buscar</label>
+            <input
+              type="text"
+              className="w-full p-2 border rounded-md text-sm"
+              value={filters.searchTerm}
+              onChange={(e) => setFilters(prev => ({
+                ...prev,
+                searchTerm: e.target.value
+              }))}
+              placeholder="Link, empresa ou motivo"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select
+              className="w-full p-2 border rounded-md text-sm"
+              value={filters.status}
+              onChange={(e) => setFilters(prev => ({
+                ...prev,
+                status: e.target.value
+              }))}
+            >
+              {tabs.map(tab => (
+                <option key={tab.id} value={tab.id}>{tab.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Lista de Anúncios */}
+      {/* Anúncios List */}
       {filteredAnuncios.length === 0 ? (
         <div className="text-center py-8 bg-white rounded-lg shadow">
-          <p className="text-gray-500">Nenhum anúncio encontrado.</p>
+          <p className="text-gray-500">Nenhum anúncio encontrado com os filtros atuais.</p>
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -246,7 +508,6 @@ const Anuncios = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Anúncio</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Empresa</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contato</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
@@ -273,55 +534,15 @@ const Anuncios = () => {
                           >
                             {anuncio.link}
                           </a>
-                          <div className="text-sm text-gray-500">
-                            {anuncio.fileSize ? `${(anuncio.fileSize / 1024).toFixed(2)} KB` : 'N/A'}
-                          </div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      {anuncio.empresa?.id ? (
-                        <a 
-                          href={`/empresas/${anuncio.empresa.id}`} 
-                          className="text-blue-600 hover:underline"
-                        >
-                          {anuncio.empresa.nome || 'Não informado'}
-                        </a>
-                      ) : (
-                        <span className="text-gray-500">Empresa não identificada</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      {anuncio.empresa?.contacto && (
-                        <a 
-                          href={`tel:${anuncio.empresa.contacto}`} 
-                          className="flex items-center text-sm text-blue-600 hover:underline"
-                        >
-                          <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                          </svg>
-                          {anuncio.empresa.contacto}
-                        </a>
-                      )}
-                      {anuncio.empresa?.email && (
-                        <a 
-                          href={`mailto:${anuncio.empresa.email}`} 
-                          className="flex items-center text-sm text-blue-600 hover:underline mt-1"
-                        >
-                          <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                          </svg>
-                          {anuncio.empresa.email}
-                        </a>
-                      )}
+                      {anuncio.empresa?.nome || 'Empresa não identificada'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusColors[anuncio.status]}`}>
-                        {anuncio.status === 'ativo' && 'Ativo'}
-                        {anuncio.status === 'pendente' && 'Pendente'}
-                        {anuncio.status === 'notificado' && 'Notificado'}
-                        {anuncio.status === 'bloqueado' && 'Bloqueado'}
-                        {anuncio.status === 'arquivado' && 'Arquivado'}
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${STATUS_COLORS[anuncio.status]}`}>
+                        {STATUS_LABELS[anuncio.status]}
                       </span>
                       {anuncio.motivoBloqueio && (
                         <div className="text-xs text-gray-500 mt-1 max-w-xs truncate" title={anuncio.motivoBloqueio}>
@@ -330,103 +551,10 @@ const Anuncios = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(anuncio.createdAt).toLocaleDateString('pt-BR', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric'
-                      })}
+                      {new Date(anuncio.createdAt).toLocaleDateString('pt-BR')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="relative inline-block text-left">
-                        <button
-                          onClick={() => setMenuOpen(menuOpen === index ? null : index)}
-                          className="inline-flex justify-center items-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 focus:outline-none"
-                        >
-                          <svg className="h-5 w-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                          </svg>
-                        </button>
-
-                        {menuOpen === index && (
-                          <div className="origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
-                            <div className="py-1">
-                              {anuncio.status === 'pendente' && (
-                                <>
-                                  <button
-                                    onClick={() => handleAction(anuncio.id, 'verificar')}
-                                    className="flex items-center w-full px-4 py-2 text-sm text-green-700 hover:bg-green-100"
-                                  >
-                                    <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    Aprovar e Ativar
-                                  </button>
-                                  <button
-                                    onClick={() => handleAction(anuncio.id, 'aprovar_arquivar')}
-                                    className="flex items-center w-full px-4 py-2 text-sm text-green-700 hover:bg-green-100"
-                                  >
-                                    <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                                    </svg>
-                                    Aprovar e Arquivar
-                                  </button>
-                                </>
-                              )}
-                              
-                              {anuncio.status !== 'bloqueado' && (
-                                <button
-                                  onClick={() => {
-                                    setSelectedAnuncio(anuncio);
-                                    setNotificationReason(anuncio.motivoNotificacao || '');
-                                  }}
-                                  className="flex items-center w-full px-4 py-2 text-sm text-blue-700 hover:bg-blue-100"
-                                >
-                                  <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                  </svg>
-                                  {anuncio.status === 'notificado' ? 'Editar Notificação' : 'Notificar Problema'}
-                                </button>
-                              )}
-                              
-                              {anuncio.status === 'bloqueado' ? (
-                                <button
-                                  onClick={() => handleAction(anuncio.id, 'desbloquear')}
-                                  className="flex items-center w-full px-4 py-2 text-sm text-green-700 hover:bg-green-100"
-                                >
-                                  <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                  </svg>
-                                  Desbloquear
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    setSelectedAnuncio(anuncio);
-                                    setNotificationReason('');
-                                  }}
-                                  className="flex items-center w-full px-4 py-2 text-sm text-red-700 hover:bg-red-100"
-                                >
-                                  <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                                  </svg>
-                                  Bloquear
-                                </button>
-                              )}
-                              
-                              <button
-                                onClick={() => handleAction(anuncio.id, 'eliminar')}
-                                className="flex items-center w-full px-4 py-2 text-sm text-red-700 hover:bg-red-100"
-                              >
-                                <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                Excluir
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      <ActionMenu anuncio={anuncio} index={index} />
                     </td>
                   </tr>
                 ))}
@@ -436,120 +564,19 @@ const Anuncios = () => {
         </div>
       )}
 
-      {/* Modal para notificar/bloquear */}
-      {selectedAnuncio && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="text-lg font-medium">
-                  {selectedAnuncio.status === 'bloqueado' ? 'Desbloquear Anúncio' : 
-                   selectedAnuncio.status === 'notificado' ? 'Editar Notificação' : 
-                   'Notificar/Bloquear Anúncio'}
-                </h3>
-                <button
-                  onClick={() => {
-                    setSelectedAnuncio(null);
-                    setNotificationReason('');
-                  }}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
+      {/* New Anúncio Button */}
+      <div className="mt-6 flex justify-end">
+        <button
+          className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md"
+          onClick={() => setActionState(prev => ({ ...prev, showModal: true }))}
+        >
+          + Novo Anúncio
+        </button>
+      </div>
 
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {selectedAnuncio.status === 'bloqueado' ? 'Motivo do bloqueio anterior:' : 'Motivo:'}
-                </label>
-                <textarea
-                  value={notificationReason}
-                  onChange={(e) => setNotificationReason(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-md"
-                  rows="4"
-                  placeholder="Descreva o problema encontrado..."
-                  disabled={selectedAnuncio.status === 'bloqueado'}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
-                {selectedAnuncio.status === 'bloqueado' ? (
-                  <button
-                    onClick={() => handleAction(selectedAnuncio.id, 'desbloquear')}
-                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md"
-                  >
-                    Desbloquear
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => handleAction(selectedAnuncio.id, 'notificar', notificationReason)}
-                      disabled={!notificationReason}
-                      className={`px-4 py-2 rounded-md ${
-                        !notificationReason 
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                          : 'bg-blue-500 hover:bg-blue-600 text-white'
-                      }`}
-                    >
-                      Notificar Empresa
-                    </button>
-                    <button
-                      onClick={() => handleAction(selectedAnuncio.id, 'bloquear', notificationReason)}
-                      disabled={!notificationReason}
-                      className={`px-4 py-2 rounded-md ${
-                        !notificationReason 
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                          : 'bg-red-500 hover:bg-red-600 text-white'
-                      }`}
-                    >
-                      Bloquear Anúncio
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal para novo anúncio */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="text-lg font-medium">Cadastrar Novo Anúncio</h3>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <UploadBanner 
-                onSuccess={() => {
-                  setShowModal(false);
-                  // Recarregar a lista
-                  const fetchAnuncios = async () => {
-                    const snapshot = await get(ref(db, `banners`));
-                    const data = snapshot.val();
-                    if (data) {
-                      const anunciosArray = Object.entries(data).map(([id, value]) => ({ id, ...value }));
-                      setAnuncios(anunciosArray);
-                    }
-                  };
-                  fetchAnuncios();
-                }} 
-                onCancel={() => setShowModal(false)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modals */}
+      {actionState.selectedAnuncio && <NotificationModal />}
+      {actionState.showModal && <UploadModal />}
     </div>
   );
 };
