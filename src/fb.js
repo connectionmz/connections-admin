@@ -13,11 +13,30 @@ const firebaseConfig = {
   measurementId: "G-FDXBJWJ0M4"
 };
 
+/** 🔴 Configuração do Projeto 2 - Connections */
+const firebaseConfig2 = {
+  apiKey: "AIzaSyChEniFx32nBnrcOvditSwLTglTBPTCWVQ",
+  authDomain: "connections-d1be1.firebaseapp.com",
+  databaseURL: "https://connections-d1be1-default-rtdb.firebaseio.com",
+  projectId: "connections-d1be1",
+  storageBucket: "connections-d1be1.appspot.com",
+  messagingSenderId: "89340878669",
+  appId: "1:89340878669:web:83a91ab3aab71257c66104",
+  measurementId: "G-HZRYF1DR6N"
+};
+// Initialize Firebase with the first project
+
 const app = initializeApp(firebaseConfig);
+const app2 = initializeApp(firebaseConfig2, "appSecundario"); // nome personalizado
 
 const auth = getAuth(app);
 export const db = getDatabase(app);
 export const storage = getStorage(app);
+
+// 🔴 App 2 - Connections
+export const db2 = getDatabase(app2);
+export const storage2 = getStorage(app2);
+
 auth.settings.appVerificationDisabledForTesting = true;
 
 const googleProvider = new GoogleAuthProvider();

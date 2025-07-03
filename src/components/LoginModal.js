@@ -11,46 +11,81 @@ const LoginModal = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  const validateEmail = (email) => {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+  };
+
   const handleLogin = async () => {
     if (!email || !password) {
       setError('Preencha todos os campos.');
       return;
     }
-  
+
+    if (!validateEmail(email)) {
+      setError('Por favor, insira um email válido.');
+      return;
+    }
+
     const auth = getAuth();
     setLoading(true);
     setError(null);
-  
+
     try {
-      // Autenticar o utilizador
+      // 1. Authenticate user
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const { user } = userCredential;
-  
-      // Obter o role do utilizador no Realtime Database
-      const snapshot = await get(ref(db, `utilizadores/${user.uid}`));
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        const userRole = data.role;
-  
-        // Criar um objeto com os dados do utilizador
-        const userData = {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || '',
-          role: userRole
-        };
-  
-        // Armazenar os dados do utilizador no sessionStorage
-        sessionStorage.setItem('user', JSON.stringify(userData));
-  
-        navigate('/'); // Página padrão para outros roles
-      } else {
-        setError('Role do utilizador não encontrado.');
-        console.error('Role não encontrado no banco de dados.');
+
+      // 2. Get additional user data from Database
+      const userSnapshot = await get(ref(db, `utilizadores/${user.uid}`));
+      
+      if (!userSnapshot.exists()) {
+        setError('Usuário não encontrado no sistema.');
+        await auth.signOut();
+        return;
       }
+
+      const userData = userSnapshot.val();
+
+      // 3. Check if user is blocked
+      if (userData.blocked === true) {
+        setError('Este usuário está bloqueado.');
+        await auth.signOut();
+        return;
+      }
+
+      // 4. Prepare user data for session storage
+      const userToStore = {
+        uid: user.uid,
+        email: user.email || email,
+        displayName: user.displayName || userData.name || '',
+        roles: Array.isArray(userData.roles) ? userData.roles : 
+              (userData.role ? [userData.role] : []),
+        mustChangePassword: userData.mustChangePassword === true,
+        blocked: userData.blocked === true,
+        dateCreated: userData.date || new Date().toISOString()
+      };
+
+      // 5. Store user data in session
+      sessionStorage.setItem('user', JSON.stringify(userToStore));
+      navigate('/');
+      // 6. Redirect based on user role
+      {/*
+              if (userToStore.mustChangePassword) {
+        navigate('/change-password');
+      } else if (userToStore.roles.includes('admin')) {
+        navigate('/admin');
+      } else if (userToStore.roles.includes('gestor de empresas')) {
+        navigate('/gestor');
+      } else {
+        navigate('/dashboard');
+      }*/}
+      
     } catch (err) {
-      setError('Email ou senha incorretos.');
-      console.error('Erro ao fazer login:', err);
+      console.error('Erro no login:', err);
+      setError(err.code === 'auth/invalid-credential' 
+        ? 'Email ou senha incorretos.' 
+        : 'Ocorreu um erro durante o login. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -84,7 +119,7 @@ const LoginModal = () => {
             }`}
           />
         </div>
-        <div className="mb-4">
+        <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
           <input
             type="password"

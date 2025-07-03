@@ -11,7 +11,7 @@ const Parceiros = () => {
     nome: '',
     email: '',
     telefone: '',
-    tipo: '', // "Parceiro" ou "Investidor"
+    tipo: '', // "Parceiro", "Financiador" ou "Patrocinador"
     companyId: '',
     logo: ''
   });
@@ -26,17 +26,16 @@ const Parceiros = () => {
       setParceiros(lista);
     });
     
-const empresasRef = dbRef(db, 'company');
-onValue(empresasRef, (snapshot) => {
-  const data = snapshot.val();
-  const lista = data 
-    ? Object.entries(data)
-        .map(([id, val]) => ({ id, ...val }))
-        .filter(emp => emp.type !== "singular")
-    : [];
-  setEmpresas(lista);
-});
-
+    const empresasRef = dbRef(db, 'company');
+    onValue(empresasRef, (snapshot) => {
+      const data = snapshot.val();
+      const lista = data 
+        ? Object.entries(data)
+            .map(([id, val]) => ({ id, ...val }))
+            .filter(emp => emp.type !== "singular")
+        : [];
+      setEmpresas(lista);
+    });
   }, []);
 
   const handleInputChange = (e) => {
@@ -55,7 +54,7 @@ onValue(empresasRef, (snapshot) => {
 
         if (empresaJaCadastrada && !editing) {
           setFeedback({
-            message: 'Esta empresa já está cadastrada como parceiro/investidor!',
+            message: 'Esta empresa já está cadastrada como parceiro!',
             success: false,
           });
           return;
@@ -64,10 +63,10 @@ onValue(empresasRef, (snapshot) => {
 
       if (editing) {
         await update(dbRef(db, `parceiros/${formData.id}`), { ...formData });
-        setFeedback({ message: 'Parceiro/Investidor atualizado com sucesso!', success: true });
+        setFeedback({ message: 'Parceiro atualizado com sucesso!', success: true });
       } else {
         await push(dbRef(db, 'parceiros'), { ...formData });
-        setFeedback({ message: 'Parceiro/Investidor cadastrado com sucesso!', success: true });
+        setFeedback({ message: 'Parceiro cadastrado com sucesso!', success: true });
       }
 
       resetForm();
@@ -98,10 +97,10 @@ onValue(empresasRef, (snapshot) => {
   };
 
   const handleDelete = async (parceiroId) => {
-    if (window.confirm('Tem certeza que deseja excluir este parceiro/investidor?')) {
+    if (window.confirm('Tem certeza que deseja excluir este parceiro?')) {
       try {
         await remove(dbRef(db, `parceiros/${parceiroId}`));
-        setFeedback({ message: 'Parceiro/Investidor excluído com sucesso!', success: true });
+        setFeedback({ message: 'Parceiro excluído com sucesso!', success: true });
       } catch (error) {
         setFeedback({ message: 'Erro ao excluir. Tente novamente.', success: false });
         console.error(error);
@@ -122,11 +121,24 @@ onValue(empresasRef, (snapshot) => {
     }));
   };
 
+  const getBadgeColor = (tipo) => {
+    switch(tipo) {
+      case 'Parceiro':
+        return 'bg-green-100 text-green-800';
+      case 'Financiador':
+        return 'bg-blue-100 text-blue-800';
+      case 'Patrocinador':
+        return 'bg-purple-100 text-purple-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
   return (
     <div className="p-2 md:p-4 lg:p-6">
       {/* Header and Tabs */}
       <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4">Parceiros e Investidores</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4">Parceiros</h1>
         
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
           <button
@@ -158,7 +170,7 @@ onValue(empresasRef, (snapshot) => {
       {/* Main Content */}
       {activeTab === 'lista' ? (
         <div className="bg-white rounded-lg shadow-sm p-4">
-          <h2 className="text-xl font-semibold mb-4 text-gray-700">Lista de Parceiros/Investidores</h2>
+          <h2 className="text-xl font-semibold mb-4 text-gray-700">Lista de Parceiros</h2>
           
           {parceiros.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -184,13 +196,8 @@ onValue(empresasRef, (snapshot) => {
                       </a>
                     </h3>
                     
-                    
                     <div className="flex justify-center mb-3">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        parceiro.tipo === 'Parceiro' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-purple-100 text-purple-800'
-                      }`}>
+                      <span className={`px-2 py-1 text-xs rounded-full ${getBadgeColor(parceiro.tipo)}`}>
                         {parceiro.tipo}
                       </span>
                     </div>
@@ -215,7 +222,7 @@ onValue(empresasRef, (snapshot) => {
             </div>
           ) : (
             <div className="text-center py-8">
-              <p className="text-gray-500">Nenhum parceiro ou investidor cadastrado.</p>
+              <p className="text-gray-500">Nenhum parceiro cadastrado.</p>
               <button
                 onClick={() => {
                   resetForm();
@@ -231,7 +238,7 @@ onValue(empresasRef, (snapshot) => {
       ) : (
         <div className="bg-white rounded-lg shadow-sm p-4 max-w-3xl mx-auto">
           <h2 className="text-xl font-semibold mb-4 text-gray-700">
-            {editing ? 'Editar Parceiro/Investidor' : 'Adicionar Novo Parceiro/Investidor'}
+            {editing ? 'Editar Parceiro' : 'Adicionar Novo Parceiro'}
           </h2>
           
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -309,7 +316,8 @@ onValue(empresasRef, (snapshot) => {
                 >
                   <option value="">Selecione o tipo</option>
                   <option value="Parceiro">Parceiro</option>
-                  <option value="Investidor">Investidor</option>
+                  <option value="Financiador">Financiador</option>
+                  <option value="Patrocinador">Patrocinador</option>
                 </select>
               </div>
             </div>

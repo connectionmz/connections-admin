@@ -1,9 +1,11 @@
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom'
-import './App.css'
-import { useState, useEffect } from 'react'
-import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth'
-import { ref, get } from 'firebase/database'
-import { auth, db } from './fb'
+import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
+import { ref, get } from 'firebase/database';
+import { auth, db } from './fb';
+import './App.css';
+
+// Import all your components
 import Dashboard from './components/Dashboard';
 import Empresas from './components/Empresas';
 import EmpresaDetalhes from './components/EmpresaDetalhes';
@@ -19,70 +21,15 @@ import RevenueReport from './components/RevenueReport';
 import Parceiros from './components/Parceiros';
 import DashboardSectorPublico from './components/DashboardSectorPublico';
 import Validacoes from './components/Validacoes';
-import CadastroEmpresa from './components/CadastroEmpresa'
-import { getUserData } from './components/utils/utils'
-import Sectores from './components/Modulos'
-import Denuncias from './components/Denuncias'
-import Publicacoes from './components/Publicacoes'
-import Pagar from './components/Pagar'
-import Relatorios from './components/Relatorios'
+import CadastroEmpresa from './components/CadastroEmpresa';
+import Sectores from './components/Modulos';
+import Denuncias from './components/Denuncias';
+import Publicacoes from './components/Publicacoes';
+import Pagar from './components/Pagar';
+import Relatorios from './components/Relatorios';
+import ChangePassword from './components/ChangePassword';
+import EmpresasGmail from './components/EmpresasGmail';
 
-// Componente de rota privada
-function PrivateRoute({ children, allowedRoles }) {
-  const [user, setUser] = useState(null)
-  const [role, setRole] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const userData = getUserData();
-
-    if (userData) {
-      setUser(userData);
-      setRole(userData.role);
-      setLoading(false);
-    } else {
-      const auth = getAuth();
-      const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-        if (firebaseUser) {
-          setUser(firebaseUser)
-          try {
-            const snapshot = await get(ref(db, `utilizadores/${firebaseUser.uid}`))
-            setRole(snapshot.exists() ? snapshot.val().role : null)
-          } catch (error) {
-            console.error('Erro ao buscar o papel do usuário:', error)
-          }
-        } else {
-          setUser(null)
-          setRole(null)
-        }
-        setLoading(false)
-      });
-      return () => unsubscribe()
-    }
-  }, []);
-
-  if (loading) return <LoadingScreen />;
-  if (!role) return <Navigate to="/login" />;
-  if (allowedRoles && !allowedRoles.includes(role)) return <Navigate to="/" />
-  return children;
-}
-
-const clearUserData = () => {
-  sessionStorage.removeItem('user')
-};
-
-const handleLogout = async () => {
-  try {
-    await signOut(auth);
-
-    clearUserData();
-
-    window.location.href = '/login'
-  } catch (error) {
-    console.error('Erro ao fazer logout:', error)
-    alert('Ocorreu um erro ao tentar sair.')
-  }
-};
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
     <div className="text-xl font-semibold text-gray-700">Carregando...</div>
@@ -97,11 +44,22 @@ const SidebarLink = ({ to, label }) => (
   </li>
 );
 
-const Sidebar = () => {
+const PrivateRoute = ({ children, allowedRoles, user }) => {
+  if (!user) return <Navigate to="/login" />;
+  if (user.blocked) return <div className="p-8 text-center">Esta conta está bloqueada.</div>;
+  //if (user.mustChangePassword) return <Navigate to="/change-password" />;
+
+  const hasAccess = allowedRoles.some(role => user.roles.includes(role));
+  return hasAccess ? children : <Navigate to="/" />;
+};
+
+const Sidebar = ({ user, handleLogout }) => {
   const menuItems = [
+    { to: "/", label: "Dashboard", roles: ["admin", "contabilista"] },
     { to: "/empresas", label: "Empresas", roles: ["admin", "gestor de empresas"] },
     { to: "/CadastroEmpresa", label: "Cadastrar Empresa", roles: ["admin", "gestor de empresas"] },
     { to: "/validar", label: "Validações", roles: ["admin", "gestor de empresas"] },
+    { to: "/empresaRepositorio", label: "Empresas Repositorio", roles: ["admin", "gestor de empresas"] },
     { to: "/blog", label: "Blog", roles: ["admin", "gestor de cotações"] },
     { to: "/anuncios", label: "Anúncios", roles: ["admin", "contabilista"] },
     { to: "/usuarios", label: "Usuários", roles: ["admin"] },
@@ -110,60 +68,211 @@ const Sidebar = () => {
     { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
     { to: "/denuncias", label: "Denuncias", roles: ["admin"] },
     { to: "/relatorios", label: "Relatorios", roles: ["admin"] },
-    { to: "/pagar", label: "pagar", roles: ["admin"] },
+    { to: "/pagar", label: "Pagar", roles: ["admin"] },
     { to: "/publicacoes", label: "Publicacoes", roles: ["admin"] },
     { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin"] },
-  ]
+    { to: "/publico", label: "Setor Público", roles: ["admin"] },
+  ];
+
+  const filteredItems = menuItems.filter(item => 
+    item.roles.some(role => user?.roles?.includes(role))
+  );
+
   return (
     <aside className="bg-black text-white w-72 min-h-screen p-6">
-      <Link to="/" className="block mb-10">
-        <h2 className="text-3xl font-extrabold text-center tracking-tight">Admin Panel</h2>
-      </Link>
+      <div className="mb-10 text-center">
+        <h2 className="text-3xl font-extrabold tracking-tight">Admin Panel</h2>
+        <p className="text-sm text-gray-500">
+          {user?.roles?.join(', ')}
+        </p>
+      </div>
       <nav>
         <ul className="space-y-6">
-          {menuItems.map((item) => (
+          {filteredItems.map((item) => (
             <SidebarLink key={item.to} to={item.to} label={item.label} />
           ))}
-              <Link
-        onClick={handleLogout}
-        className="block p-3 rounded-lg text-lg font-medium bg-red-800 text-white hover:bg-gray-700 transition mt-4">
-        SAIR
-      </Link>
+          <li>
+            <button
+              onClick={handleLogout}
+              className="w-full text-left p-3 rounded-lg text-lg font-medium bg-red-800 text-white hover:bg-gray-700 transition mt-4"
+            >
+              SAIR
+            </button>
+          </li>
         </ul>
       </nav>
     </aside>
-  )
-}
+  );
+};
+
 function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const snapshot = await get(ref(db, `utilizadores/${firebaseUser.uid}`));
+          if (snapshot.exists()) {
+            const userData = snapshot.val();
+            const formattedUser = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              displayName: firebaseUser.displayName || userData.name || '',
+              roles: Array.isArray(userData.roles) ? userData.roles : 
+                    (userData.role ? [userData.role] : []),
+              mustChangePassword: userData.mustChangePassword === true,
+              blocked: userData.blocked === true
+            };
+            sessionStorage.setItem('user', JSON.stringify(formattedUser));
+            setUser(formattedUser);
+          } else {
+            await auth.signOut();
+          }
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+        }
+      } else {
+        sessionStorage.removeItem('user');
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      sessionStorage.removeItem('user');
+      window.location.href = '/login';
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  if (loading) {
+    return <LoadingScreen />;
+  }
+
   return (
     <Router>
-      <div className="flex min-h-screen bg-gray-50">
-        <Sidebar />
-        <main className="flex-1 p-8">
-          <Routes>
-            <Route path="/" element={<PrivateRoute allowedRoles={['admin', 'contabilista']}><Dashboard /></PrivateRoute>} />
-            <Route path="/empresas" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Empresas /></PrivateRoute>} />
-            <Route path="/relatorios" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Relatorios /></PrivateRoute>} />
-            <Route path="/pagar" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Pagar /></PrivateRoute>} />
-            <Route path="/validar" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Validacoes /></PrivateRoute>} />
-            <Route path="/publico" element={<PrivateRoute allowedRoles={['admin']}><DashboardSectorPublico /></PrivateRoute>} />
-            <Route path="/CadastroEmpresa" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><CadastroEmpresa /></PrivateRoute>} />
-            <Route path="/blog" element={<PrivateRoute allowedRoles={['admin', 'gestor de cotações']}><Publicidade /></PrivateRoute>} />
-            <Route path="/servicos" element={<PrivateRoute allowedRoles={['admin', 'gestor de serviços']}><ServicoxExternos /></PrivateRoute>} />
-            <Route path="/anuncios" element={<PrivateRoute allowedRoles={['admin', 'contabilista']}><Anuncios /></PrivateRoute>} />
-            <Route path="/sectores" element={<PrivateRoute allowedRoles={['admin']}><Sectores /></PrivateRoute>} />
-            <Route path="/usuarios" element={<PrivateRoute allowedRoles={['admin']}><UsuariosOffline /></PrivateRoute>} />
-            <Route path="/denuncias" element={<PrivateRoute allowedRoles={['admin']}><Denuncias /></PrivateRoute>} />
-            <Route path="/cotacoes" element={<PrivateRoute allowedRoles={['admin','gestor de cotações']}><Cotacoes /></PrivateRoute>} />
-            <Route path="/utilizadores" element={<PrivateRoute allowedRoles={['admin']}><Utilizadores /></PrivateRoute>} />
-            <Route path="/publicacoes" element={<PrivateRoute allowedRoles={['admin']}><Publicacoes /></PrivateRoute>} />
-            <Route path="/parceiros" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><Parceiros /></PrivateRoute>} />
-            <Route path="/empresas/:id" element={<PrivateRoute allowedRoles={['admin', 'gestor de empresas']}><EmpresaDetalhes /></PrivateRoute>} />
-            <Route path="/login" element={<LoginModal />} />
-          </Routes>
-        </main>
-      </div>
+      {user ? (
+        <div className="flex min-h-screen bg-gray-50">
+          <Sidebar user={user} handleLogout={handleLogout} />
+          <main className="flex-1 p-8">
+            <Routes>
+              <Route path="/" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'contabilista']}>
+                  <Dashboard />
+                </PrivateRoute>
+              } />
+              <Route path="/empresas" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <Empresas />
+                </PrivateRoute>
+              } />
+              <Route path="/relatorios" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <Relatorios />
+                </PrivateRoute>
+              } />
+              <Route path="/pagar" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <Pagar />
+                </PrivateRoute>
+              } />
+              <Route path="/validar" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <Validacoes />
+                </PrivateRoute>
+              } />
+                 <Route path="/empresaRepositorio" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <EmpresasGmail />
+                </PrivateRoute>
+              } />
+              
+              <Route path="/publico" element={
+                <PrivateRoute user={user} allowedRoles={['admin']}>
+                  <DashboardSectorPublico />
+                </PrivateRoute>
+              } />
+              <Route path="/CadastroEmpresa" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <CadastroEmpresa />
+                </PrivateRoute>
+              } />
+              <Route path="/blog" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
+                  <Publicidade />
+                </PrivateRoute>
+              } />
+              <Route path="/servicos" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de serviços']}>
+                  <ServicoxExternos />
+                </PrivateRoute>
+              } />
+              <Route path="/anuncios" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'contabilista']}>
+                  <Anuncios />
+                </PrivateRoute>
+              } />
+              <Route path="/sectores" element={
+                <PrivateRoute user={user} allowedRoles={['admin']}>
+                  <Sectores />
+                </PrivateRoute>
+              } />
+              <Route path="/usuarios" element={
+                <PrivateRoute user={user} allowedRoles={['admin']}>
+                  <UsuariosOffline />
+                </PrivateRoute>
+              } />
+              <Route path="/denuncias" element={
+                <PrivateRoute user={user} allowedRoles={['admin']}>
+                  <Denuncias />
+                </PrivateRoute>
+              } />
+              <Route path="/cotacoes" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
+                  <Cotacoes />
+                </PrivateRoute>
+              } />
+              <Route path="/utilizadores" element={
+                <PrivateRoute user={user} allowedRoles={['admin']}>
+                  <Utilizadores />
+                </PrivateRoute>
+              } />
+              <Route path="/publicacoes" element={
+                <PrivateRoute user={user} allowedRoles={['admin']}>
+                  <Publicacoes />
+                </PrivateRoute>
+              } />
+              <Route path="/parceiros" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <Parceiros />
+                </PrivateRoute>
+              } />
+              <Route path="/empresas/:id" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <EmpresaDetalhes />
+                </PrivateRoute>
+              } />
+              <Route path="/change-password" element={<ChangePassword />} />
+              <Route path="*" element={<Navigate to="/" />} />
+            </Routes>
+          </main>
+        </div>
+      ) : (
+        <Routes>
+          <Route path="/login" element={<LoginModal />} />
+          <Route path="*" element={<Navigate to="/login" />} />
+        </Routes>
+      )}
     </Router>
   );
 }
+
 export default App;

@@ -337,31 +337,55 @@ const Utilizadores = () => {
     setEmail(generateDefaultEmail(e.target.value));
   };
 
+
   const handleRegister = async (e) => {
-    e.preventDefault();
-    try {
-      const password = '@connection';
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      
-      const newUser = {
-        uid: userCredential.user.uid,
-        name,
-        email,
-        roles: rolesSelecionadas, // Agora é um array
-        date: new Date().toISOString(),
-        blocked: false,
-      };
+  e.preventDefault();
   
-      await set(ref(db, `utilizadores/${userCredential.user.uid}`), newUser);
-      
-      setName('');
-      setEmail('');
-      setRolesSelecionadas([]); // Limpar os roles selecionados
-      fetchUsers();
-    } catch (error) {
-      console.error('Erro ao cadastrar utilizador:', error);
+  if (rolesSelecionadas.length === 0) {
+    alert('Selecione pelo menos uma função para o usuário');
+    return;
+  }
+
+  try {
+    // Verificar se email já existe
+    const usersSnapshot = await get(ref(db, 'utilizadores'));
+    const usersData = usersSnapshot.val() || {};
+    const emailExists = Object.values(usersData).some(u => u.email === email);
+    
+    if (emailExists) {
+      alert('Este email já está cadastrado');
+      return;
     }
-  };
+
+    // Senha padrão
+    const password = '@Connection2024'; // Senha mais robusta mas ainda padrão
+    
+    // Criar usuário no Firebase Auth
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    
+    const newUser = {
+      uid: userCredential.user.uid,
+      name,
+      email,
+      roles: rolesSelecionadas,
+      date: new Date().toISOString(),
+      blocked: false,
+      mustChangePassword: true 
+    };
+
+    await set(ref(db, `utilizadores/${userCredential.user.uid}`), newUser);
+    
+    setName('');
+    setEmail('');
+    setRolesSelecionadas([]);
+    
+    alert(`Usuário cadastrado com sucesso! Senha inicial: ${password}`);
+    fetchUsers();
+  } catch (error) {
+    console.error('Erro ao cadastrar:', error);
+    alert(`Erro ao cadastrar usuário: ${error.message}`);
+  }
+};
 
   const fetchUsers = async () => {
     try {
