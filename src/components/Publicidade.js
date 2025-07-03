@@ -109,7 +109,6 @@ const Publicidade = () => {
         date,
         time,
         ...(imageUrlToSave && { imageUrl: imageUrlToSave }),
-        timestamp: now.getTime()
       };
 
       if (editPostId) {
