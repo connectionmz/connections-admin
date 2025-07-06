@@ -13,7 +13,6 @@ import LoginModal from './components/LoginModal';
 import Publicidade from './components/Publicidade';
 import ServicoxExternos from './components/ServicoxExternos';
 import Anuncios from './components/Anuncios';
-import Modulos from './components/Modulos';
 import UsuariosOffline from './components/Usuarios';
 import Utilizadores from './components/Utilizadores';
 import Cotacoes from './components/roles/Cotacoes';
@@ -22,13 +21,14 @@ import Parceiros from './components/Parceiros';
 import DashboardSectorPublico from './components/DashboardSectorPublico';
 import Validacoes from './components/Validacoes';
 import CadastroEmpresa from './components/CadastroEmpresa';
-import Sectores from './components/Modulos';
+import Sectores from './components/Sectores';
 import Denuncias from './components/Denuncias';
 import Publicacoes from './components/Publicacoes';
 import Pagar from './components/Pagar';
 import Relatorios from './components/Relatorios';
 import ChangePassword from './components/ChangePassword';
 import EmpresasGmail from './components/EmpresasGmail';
+import Modulos from './components/Modulos';
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
@@ -66,6 +66,7 @@ const Sidebar = ({ user, handleLogout }) => {
     { to: "/cotacoes", label: "Cotações", roles: ["admin", "gestor de cotações"] },
     { to: "/sectores", label: "Sectores", roles: ["admin", "gestor de cotações"] },
     { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
+    { to: "/modulos", label: "Modulos", roles: ["admin"] },
     { to: "/denuncias", label: "Denuncias", roles: ["admin"] },
     { to: "/relatorios", label: "Relatorios", roles: ["admin", "gestor de empresas"] },
     { to: "/pagar", label: "Pagar", roles: ["admin"] },
@@ -238,6 +239,11 @@ function App() {
               <Route path="/cotacoes" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
                   <Cotacoes />
+                </PrivateRoute>
+              } />
+              <Route path="/modulos" element={
+                <PrivateRoute user={user} allowedRoles={['admin']}>
+                  <Modulos />
                 </PrivateRoute>
               } />
               <Route path="/utilizadores" element={

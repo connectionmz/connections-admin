@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { ref, get, update } from 'firebase/database'; 
+import { useNavigate, useParams } from 'react-router-dom';
+import { ref, get, update, remove } from 'firebase/database'; 
 import { db } from '../fb'; 
 import jsPDF from 'jspdf';
-import { Alert, Snackbar, Chip, Avatar, Divider } from '@mui/material';
+import { Alert, Snackbar, Chip, Avatar, Divider, Typography, Button } from '@mui/material';
 import { 
   Business, 
   Email, 
@@ -24,6 +24,9 @@ import {
   Engineering
 } from '@mui/icons-material';
 import ModulosComponent from './ModulosComponent';
+
+
+const navigate = useNavigate
 
 // Componentes de UI reutilizáveis
 const SectionHeader = ({ title, icon }) => (
@@ -225,6 +228,27 @@ const EmpresaDetalhes = () => {
       [moduleKey]: !prev[moduleKey]
     }));
   };
+
+  const handleDeleteCompany = async () => {
+  if (window.confirm('Tem certeza que deseja eliminar permanentemente esta empresa? Esta ação não pode ser desfeita.')) {
+    try {
+      await remove(ref(db, `company/${id}`));
+      setSnackbar({
+        open: true,
+        message: 'Empresa eliminada com sucesso',
+        severity: 'success'
+      });
+     navigate('/')
+    } catch (error) {
+      console.error('Erro ao eliminar empresa:', error);
+      setSnackbar({
+        open: true,
+        severity: 'error',
+        message: 'Erro ao eliminar empresa'
+      });
+    }
+  }
+};
 
   const gerarFatura = (sub) => {
     const doc = new jsPDF();
@@ -495,7 +519,27 @@ const EmpresaDetalhes = () => {
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-lg shadow-sm">
               <SectionHeader title="Configurações da Empresa" icon={<Engineering className="!h-5 !w-5" />} />
-              
+                <Divider sx={{ my: 3 }} />
+      
+              <div className="bg-red-50 p-4 rounded-lg border border-red-100">
+                <SectionHeader 
+                  title="Área de Risco" 
+                  icon={<Block color="error" className="!h-5 !w-5" />} 
+                />
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Esta ação eliminará permanentemente todos os dados da empresa. Tenha certeza antes de prosseguir.
+                </Typography>
+                <Button
+                  variant="contained"
+                  color="error"
+                  startIcon={<Block />}
+                  onClick={handleDeleteCompany}
+                  sx={{ mt: 2 }}
+                >
+                  Eliminar Empresa
+                </Button>
+              </div>
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status da Empresa</label>
