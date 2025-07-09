@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ref, get, update } from 'firebase/database';
-import { db2 } from '../fb';
-import { FiMail, FiPhone, FiFilter, FiSearch, FiDownload, FiUser, FiUserPlus, FiCheck, FiList } from 'react-icons/fi';
+import { auth, db2 } from '../fb';
+import { FiMail, FiPhone, FiFilter, FiSearch, FiDownload, FiUser, FiUserPlus, FiCheck, FiList, FiRotateCcw } from 'react-icons/fi';
 import { FaUserTie } from 'react-icons/fa';
 
 const EmpresasDashboard = () => {
@@ -38,7 +38,6 @@ const EmpresasDashboard = () => {
         (domain === 'custom' && !emailDomains.some(d => d.value !== 'all' && d.value !== 'custom' && empresa.email && empresa.email.includes(`@${d.value}`))) ||
         (empresa.email && empresa.email.includes(`@${domain}`));
       
-      // Registration type filter
       const registrationMatch = 
         registrationType === 'all' ||
         (registrationType === 'withReferrer' && empresa.hasReferrer) ||
@@ -111,25 +110,72 @@ const EmpresasDashboard = () => {
     setFilteredEmpresas(filtered);
   }, [domainFilter, registrationFilter, searchTerm, empresas, activeTab]);
 
-  const markAsContacted = async (empresaId) => {
-    try {
-      await update(ref(db2, `company/${empresaId}`), {
-        contacted: true,
-        contactedAt: new Date().toISOString()
-      });
-      
-      setEmpresas(prev => prev.map(e => 
-        e.id === empresaId ? {...e, contacted: true} : e
-      ));
-      
-      const empresa = empresas.find(e => e.id === empresaId);
-      if (empresa) {
-        setContactedEmpresas(prev => [...prev, {...empresa, contacted: true}]);
-      }
-    } catch (error) {
-      console.error('Error marking as contacted:', error);
+const markAsContacted = async (empresaId) => {
+  try {
+    // Get the company name for the confirmation message
+    const empresa = empresas.find(e => e.id === empresaId);
+    const companyName = empresa?.nome || 'esta empresa';
+
+    // Confirmation dialog
+    const confirmAction = window.confirm(`Deseja realmente marcar ${companyName} como contactada?`);
+    if (!confirmAction) return;
+
+    const user = auth.currentUser;
+    const contactedBy = {
+      uid: user?.uid || 'unknown',
+      email: user?.email || 'unknown@email.com',
+      timestamp: new Date().toISOString()
+    };
+
+    await update(ref(db2, `company/${empresaId}`), {
+      contacted: true,
+      contactedAt: new Date().toISOString(),
+      contactedBy: contactedBy
+    });
+    
+    setEmpresas(prev => prev.map(e => 
+      e.id === empresaId ? {...e, contacted: true, contactedBy: contactedBy} : e
+    ));
+    
+    if (empresa) {
+      setContactedEmpresas(prev => [...prev, {...empresa, contacted: true, contactedBy: contactedBy}]);
     }
-  };
+    
+    alert(`${companyName} foi marcada como contactada com sucesso!`);
+  } catch (error) {
+    console.error('Error marking as contacted:', error);
+    alert('Ocorreu um erro ao marcar como contactada');
+  }
+};
+
+const markAsUncontacted = async (empresaId) => {
+  try {
+    // Get the company name for the confirmation message
+    const empresa = empresas.find(e => e.id === empresaId);
+    const companyName = empresa?.nome || 'esta empresa';
+
+    // Confirmation dialog
+    const confirmAction = window.confirm(`Deseja realmente desmarcar ${companyName} como não contactada?`);
+    if (!confirmAction) return;
+
+    await update(ref(db2, `company/${empresaId}`), {
+      contacted: false,
+      contactedAt: null,
+      contactedBy: null
+    });
+    
+    setEmpresas(prev => prev.map(e => 
+      e.id === empresaId ? {...e, contacted: false, contactedBy: null} : e
+    ));
+    
+    setContactedEmpresas(prev => prev.filter(e => e.id !== empresaId));
+    
+    alert(`${companyName} foi marcada como não contactada com sucesso!`);
+  } catch (error) {
+    console.error('Error marking as uncontacted:', error);
+    alert('Ocorreu um erro ao desmarcar como contactada');
+  }
+};
 
   const handleSendEmail = (email) => {
     window.open(`mailto:${email}`, '_blank');
@@ -285,6 +331,11 @@ const EmpresasDashboard = () => {
                       <div className="flex flex-col">
                         <div className="font-medium text-gray-900 text-sm sm:text-base">{empresa.nome || 'N/A'}</div>
                         <div className="text-gray-500 text-xs sm:text-sm">{empresa.email || 'N/A'}</div>
+                        {empresa.contacted && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            Contactada em: {new Date(empresa.contactedAt).toLocaleDateString()} por {empresa.contactedBy?.email}
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2 sm:px-6 sm:py-4 text-sm text-gray-500">
@@ -331,13 +382,21 @@ const EmpresasDashboard = () => {
                         >
                           <FiPhone size={16} />
                         </button>
-                        {activeTab === 'uncontacted' && (
+                        {activeTab === 'uncontacted' ? (
                           <button
                             onClick={() => markAsContacted(empresa.id)}
                             className="p-1 sm:p-2 rounded-full text-purple-500 hover:bg-purple-50"
                             title="Marcar como contactada"
                           >
                             <FiCheck size={16} />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => markAsUncontacted(empresa.id)}
+                            className="p-1 sm:p-2 rounded-full text-orange-500 hover:bg-orange-50"
+                            title="Marcar como não contactada"
+                          >
+                            <FiRotateCcw size={16} />
                           </button>
                         )}
                       </div>

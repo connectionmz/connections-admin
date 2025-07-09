@@ -375,5 +375,4 @@ const Modulos = () => {
     </div>
   );
 };
-
 export default Modulos;
