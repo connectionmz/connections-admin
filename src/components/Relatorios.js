@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { ref, get, push, set, update } from 'firebase/database';
+import React, { useState, useEffect } from 'react';
+import { ref, get, remove, update } from 'firebase/database';
 import { db, auth } from '../fb';
 import { onAuthStateChanged } from 'firebase/auth';
 import { saveAs } from 'file-saver';
@@ -8,59 +8,39 @@ import {
   ArrowDownTrayIcon,
   CheckIcon,
   XMarkIcon,
-  PencilSquareIcon
+  PencilSquareIcon,
+  TrashIcon,
+  EyeIcon
 } from '@heroicons/react/24/outline';
 
-const Relatorios = () => {
+export default function Relatorios() {
   const [currentUser, setCurrentUser] = useState(null);
-  const [role, setRole] = useState(null);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [newReport, setNewReport] = useState({
-    title: '',
-    description: '',
-    activities: '',
-    results: '',
-    challenges: '',
-    date: new Date().toISOString().split('T')[0],
-    status: 'pending'
-  });
-  const [viewMode, setViewMode] = useState('list');
+  const [success, setSuccess] = useState('');
   const [filter, setFilter] = useState('all');
-  const [editingId, setEditingId] = useState(null);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
-  // Monitorar estado de autenticação
+  // Verificar autenticação
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
         setCurrentUser({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName || firebaseUser.email
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email
         });
-        
-        try {
-          const snapshot = await get(ref(db, `utilizadores/${firebaseUser.uid}`));
-          setRole(snapshot.exists() ? snapshot.val().role : 'funcionario');
-        } catch (error) {
-          console.error('Erro ao buscar papel do usuário:', error);
-          setRole('funcionario');
-        }
       } else {
         setCurrentUser(null);
-        setRole(null);
       }
-      setLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
   // Buscar relatórios
   useEffect(() => {
-    if (!currentUser) return;
-
     const fetchReports = async () => {
       try {
         setLoading(true);
@@ -70,15 +50,13 @@ const Relatorios = () => {
         if (snapshot.exists()) {
           const reportsData = [];
           snapshot.forEach((childSnapshot) => {
-            const report = childSnapshot.val();
-            // Admin vê tudo, funcionário vê apenas os seus
-            if (role === 'admin' || report.userId === currentUser.uid) {
-              reportsData.push({
-                id: childSnapshot.key,
-                ...report
-              });
-            }
+            reportsData.push({
+              id: childSnapshot.key,
+              ...childSnapshot.val()
+            });
           });
+          // Ordenar por data mais recente primeiro
+          reportsData.sort((a, b) => new Date(b.date) - new Date(a.date));
           setReports(reportsData);
         }
         setLoading(false);
@@ -90,133 +68,67 @@ const Relatorios = () => {
     };
 
     fetchReports();
-  }, [currentUser, role]);
+  }, []);
 
-  const filteredReports = useMemo(() => {
-    if (filter === 'all') return reports;
-    return reports.filter(report => report.status === filter);
-  }, [reports, filter]);
+  // Filtrar relatórios
+  const filteredReports = filter === 'all' 
+    ? reports 
+    : reports.filter(report => report.status === filter);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setNewReport(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  // Visualizar detalhes do relatório
+  const viewReportDetails = (report) => {
+    setSelectedReport(report);
   };
 
-  const handleSubmitReport = async (e) => {
-    e.preventDefault();
-    setError('');
-
-    if (!newReport.title || !newReport.description || !newReport.activities) {
-      setError('Preencha todos os campos obrigatórios');
-      return;
-    }
-
+  // Excluir relatório
+  const handleDeleteReport = async (reportId) => {
     try {
       setLoading(true);
-      const reportsRef = ref(db, 'reports');
-      
-      if (editingId) {
-        // Atualizar relatório existente
-        await update(ref(db, `reports/${editingId}`), {
-          ...newReport,
-          updatedAt: new Date().toISOString()
-        });
-      } else {
-        // Criar novo relatório
-        const newReportRef = push(reportsRef);
-        await set(newReportRef, {
-          ...newReport,
-          userId: currentUser.uid,
-          userName: currentUser.displayName,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        });
-      }
-
-      // Recarregar lista
-      const snapshot = await get(reportsRef);
-      if (snapshot.exists()) {
-        const reportsData = [];
-        snapshot.forEach((childSnapshot) => {
-          reportsData.push({
-            id: childSnapshot.key,
-            ...childSnapshot.val()
-          });
-        });
-        setReports(reportsData);
-      }
-
-      // Resetar formulário
-      setNewReport({
-        title: '',
-        description: '',
-        activities: '',
-        results: '',
-        challenges: '',
-        date: new Date().toISOString().split('T')[0],
-        status: 'pending'
-      });
-      setEditingId(null);
-      setViewMode('list');
+      await remove(ref(db, `reports/${reportId}`));
+      setReports(reports.filter(report => report.id !== reportId));
+      setSuccess('Relatório excluído com sucesso!');
+      setConfirmDelete(null);
       setLoading(false);
-    } catch (err) {
-      setError('Erro ao salvar relatório');
-      console.error(err);
+    } catch (error) {
+      setError('Erro ao excluir relatório');
+      console.error(error);
       setLoading(false);
     }
   };
 
-  const handleEditReport = (report) => {
-    if (report.userId !== currentUser.uid && role !== 'admin') {
-      setError('Apenas o autor ou admin pode editar');
-      return;
-    }
-
-    if (report.status !== 'pending' && role !== 'admin') {
-      setError('Só é possível editar relatórios pendentes');
-      return;
-    }
-
-    setNewReport({
-      title: report.title,
-      description: report.description,
-      activities: report.activities,
-      results: report.results,
-      challenges: report.challenges,
-      date: report.date,
-      status: report.status
-    });
-    setEditingId(report.id);
-    setViewMode('form');
-  };
-
+  // Alterar status do relatório
   const handleStatusChange = async (reportId, newStatus) => {
-    if (role !== 'admin') {
-      setError('Apenas administradores podem alterar status');
-      return;
-    }
-
     try {
       await update(ref(db, `reports/${reportId}`), {
         status: newStatus,
         updatedAt: new Date().toISOString()
       });
-
-      // Atualizar lista local
+      
       setReports(reports.map(report => 
         report.id === reportId ? {...report, status: newStatus} : report
       ));
+      setSuccess(`Status alterado para ${newStatus === 'approved' ? 'aprovado' : 'rejeitado'}`);
     } catch (error) {
-      console.error('Erro ao atualizar status:', error);
       setError('Erro ao atualizar status');
+      console.error(error);
     }
   };
 
+  // Exportar para Excel
   const exportToExcel = () => {
-    const worksheet = XLSX.utils.json_to_sheet(filteredReports);
+    const dataToExport = filteredReports.map(report => ({
+      Título: report.title,
+      Descrição: report.description,
+      Atividades: report.activities,
+      Resultados: report.results,
+      Desafios: report.challenges,
+      Data: report.date,
+      Status: report.status === 'approved' ? 'Aprovado' : report.status === 'rejected' ? 'Rejeitado' : 'Pendente',
+      Autor: report.userName,
+      'Data de Criação': report.createdAt
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Relatórios");
     const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
@@ -224,7 +136,8 @@ const Relatorios = () => {
     saveAs(data, `relatorios_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  const getStatusBadge = (status) => {
+  // Componente de badge de status
+  const StatusBadge = ({ status }) => {
     switch(status) {
       case 'approved':
         return <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">Aprovado</span>;
@@ -235,197 +148,233 @@ const Relatorios = () => {
     }
   };
 
-  if (loading && !currentUser) {
-    return <div className="flex justify-center items-center h-screen">Carregando...</div>;
-  }
-
-  if (!currentUser) {
-    return <div className="flex justify-center items-center h-screen">Faça login para acessar</div>;
+  if (loading && reports.length === 0) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
   }
 
   return (
     <div className="p-4 md:p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">
-          {role === 'admin' ? 'Relatórios da Equipe' : 'Meus Relatórios'}
-        </h1>
-        {viewMode === 'list' && (
-          <button
-            onClick={() => {
-              setEditingId(null);
-              setViewMode('form');
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-          >
-            Novo Relatório
-          </button>
-        )}
+        <h1 className="text-2xl font-bold text-gray-800">Relatórios dos Usuários</h1>
+        <button
+          onClick={exportToExcel}
+          className="flex items-center px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+        >
+          <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
+          Exportar para Excel
+        </button>
       </div>
 
       {error && <div className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</div>}
+      {success && <div className="bg-green-100 text-green-700 p-3 rounded mb-4">{success}</div>}
 
-      {viewMode === 'form' ? (
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">
-            {editingId ? 'Editar Relatório' : 'Criar Novo Relatório'}
-          </h2>
-          
-          <form onSubmit={handleSubmitReport} className="space-y-4">
-            {/* Campos do formulário (mesmo do anterior) */}
-            {/* ... */}
-            
-            <div className="flex space-x-4 pt-2">
-              <button
-                type="submit"
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md"
-                disabled={loading}
-              >
-                {loading ? 'Salvando...' : 'Salvar Relatório'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingId(null);
-                  setViewMode('list');
-                }}
-                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md"
-              >
-                Cancelar
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center justify-between mb-6 bg-white p-4 rounded-lg shadow-sm">
-            <div className="flex space-x-2 mb-2 sm:mb-0">
-              <button
-                onClick={() => setFilter('all')}
-                className={`px-3 py-1 rounded-md text-sm ${filter === 'all' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'}`}
-              >
-                Todos
-              </button>
-              <button
-                onClick={() => setFilter('pending')}
-                className={`px-3 py-1 rounded-md text-sm ${filter === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-700'}`}
-              >
-                Pendentes
-              </button>
-              <button
-                onClick={() => setFilter('approved')}
-                className={`px-3 py-1 rounded-md text-sm ${filter === 'approved' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}
-              >
-                Aprovados
-              </button>
-              <button
-                onClick={() => setFilter('rejected')}
-                className={`px-3 py-1 rounded-md text-sm ${filter === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700'}`}
-              >
-                Rejeitados
-              </button>
-            </div>
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-2 mb-6 bg-white p-4 rounded-lg shadow-sm">
+        <button
+          onClick={() => setFilter('all')}
+          className={`px-3 py-1 rounded-md text-sm ${filter === 'all' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'}`}
+        >
+          Todos ({reports.length})
+        </button>
+        <button
+          onClick={() => setFilter('pending')}
+          className={`px-3 py-1 rounded-md text-sm ${filter === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-700'}`}
+        >
+          Pendentes ({reports.filter(r => r.status === 'pending').length})
+        </button>
+        <button
+          onClick={() => setFilter('approved')}
+          className={`px-3 py-1 rounded-md text-sm ${filter === 'approved' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}
+        >
+          Aprovados ({reports.filter(r => r.status === 'approved').length})
+        </button>
+        <button
+          onClick={() => setFilter('rejected')}
+          className={`px-3 py-1 rounded-md text-sm ${filter === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700'}`}
+        >
+          Rejeitados ({reports.filter(r => r.status === 'rejected').length})
+        </button>
+      </div>
 
-            <div className="flex space-x-2">
-              <button
-                onClick={exportToExcel}
-                className="flex items-center px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm"
-                title="Exportar para Excel"
-              >
-                <ArrowDownTrayIcon className="h-4 w-4 mr-1" />
-                Exportar
-              </button>
-            </div>
-          </div>
+      {/* Modal de detalhes */}
+      {selectedReport && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-xl font-bold">{selectedReport.title}</h2>
+                <button 
+                  onClick={() => setSelectedReport(null)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
 
-          {loading ? (
-            <div className="flex justify-center items-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          ) : filteredReports.length === 0 ? (
-            <div className="bg-white rounded-lg shadow-sm p-8 text-center">
-              <p className="text-gray-500">Nenhum relatório encontrado</p>
-              <button
-                onClick={() => setViewMode('form')}
-                className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-              >
-                Criar Primeiro Relatório
-              </button>
-            </div>
-          ) : (
-            <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Título</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
-                      {role === 'admin' && (
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Autor</th>
-                      )}
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredReports.map((report) => (
-                      <tr key={report.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{report.title}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-500">
-                            {new Date(report.date).toLocaleDateString('pt-BR')}
-                          </div>
-                        </td>
-                        {role === 'admin' && (
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{report.userName}</div>
-                          </td>
-                        )}
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {getStatusBadge(report.status)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => handleEditReport(report)}
-                              className="text-blue-600 hover:text-blue-900"
-                              title="Editar"
-                            >
-                              <PencilSquareIcon className="h-5 w-5" />
-                            </button>
-                            
-                            {role === 'admin' && report.status === 'pending' && (
-                              <>
-                                <button
-                                  onClick={() => handleStatusChange(report.id, 'approved')}
-                                  className="text-green-600 hover:text-green-900"
-                                  title="Aprovar"
-                                >
-                                  <CheckIcon className="h-5 w-5" />
-                                </button>
-                                <button
-                                  onClick={() => handleStatusChange(report.id, 'rejected')}
-                                  className="text-red-600 hover:text-red-900"
-                                  title="Rejeitar"
-                                >
-                                  <XMarkIcon className="h-5 w-5" />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                  <p className="text-sm text-gray-500">Autor</p>
+                  <p>{selectedReport.userName}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Data</p>
+                  <p>{new Date(selectedReport.date).toLocaleDateString('pt-BR')}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Status</p>
+                  <p><StatusBadge status={selectedReport.status} /></p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Enviado em</p>
+                  <p>{new Date(selectedReport.createdAt).toLocaleString('pt-BR')}</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-medium mb-2">Descrição</h3>
+                  <p className="whitespace-pre-line bg-gray-50 p-3 rounded">
+                    {selectedReport.description}
+                  </p>
+                </div>
+
+                <div>
+                  <h3 className="font-medium mb-2">Atividades Realizadas</h3>
+                  <p className="whitespace-pre-line bg-gray-50 p-3 rounded">
+                    {selectedReport.activities}
+                  </p>
+                </div>
+
+                {selectedReport.results && (
+                  <div>
+                    <h3 className="font-medium mb-2">Resultados Obtidos</h3>
+                    <p className="whitespace-pre-line bg-gray-50 p-3 rounded">
+                      {selectedReport.results}
+                    </p>
+                  </div>
+                )}
+
+                {selectedReport.challenges && (
+                  <div>
+                    <h3 className="font-medium mb-2">Desafios Encontrados</h3>
+                    <p className="whitespace-pre-line bg-gray-50 p-3 rounded">
+                      {selectedReport.challenges}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
-          )}
-        </>
+          </div>
+        </div>
       )}
+
+      {/* Lista de relatórios */}
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        {filteredReports.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            Nenhum relatório encontrado
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Título</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Autor</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredReports.map((report) => (
+                  <tr key={report.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-gray-900">{report.title}</div>
+                      {report.edited && (
+                        <span className="text-xs text-yellow-600">(editado)</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-500">{report.userName}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-500">
+                        {new Date(report.date).toLocaleDateString('pt-BR')}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <StatusBadge status={report.status} />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => viewReportDetails(report)}
+                          className="text-blue-600 hover:text-blue-900 p-1"
+                          title="Visualizar"
+                        >
+                          <EyeIcon className="h-5 w-5" />
+                        </button>
+
+                        {report.status === 'pending' && (
+                          <>
+                            <button
+                              onClick={() => handleStatusChange(report.id, 'approved')}
+                              className="text-green-600 hover:text-green-900 p-1"
+                              title="Aprovar"
+                            >
+                              <CheckIcon className="h-5 w-5" />
+                            </button>
+                            <button
+                              onClick={() => handleStatusChange(report.id, 'rejected')}
+                              className="text-red-600 hover:text-red-900 p-1"
+                              title="Rejeitar"
+                            >
+                              <XMarkIcon className="h-5 w-5" />
+                            </button>
+                          </>
+                        )}
+
+                        <button
+                          onClick={() => setConfirmDelete(report.id)}
+                          className="text-red-600 hover:text-red-900 p-1"
+                          title="Excluir"
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </button>
+
+                        {confirmDelete === report.id && (
+                          <div className="absolute bg-white p-2 shadow-lg rounded border border-gray-200 z-10">
+                            <p className="text-sm mb-2">Confirmar exclusão?</p>
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => handleDeleteReport(report.id)}
+                                className="px-2 py-1 bg-red-600 text-white text-xs rounded"
+                              >
+                                Sim
+                              </button>
+                              <button
+                                onClick={() => setConfirmDelete(null)}
+                                className="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
-};
-
-export default Relatorios;
+}

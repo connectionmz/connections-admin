@@ -29,6 +29,7 @@ import Relatorios from './components/Relatorios';
 import ChangePassword from './components/ChangePassword';
 import EmpresasGmail from './components/EmpresasGmail';
 import Modulos from './components/Modulos';
+import RelatorioForm from './components/RelatorioForm';
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
@@ -68,7 +69,8 @@ const Sidebar = ({ user, handleLogout }) => {
     { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
     { to: "/modulos", label: "Modulos", roles: ["admin"] },
     { to: "/denuncias", label: "Denuncias", roles: ["admin"] },
-    { to: "/relatorios", label: "Relatorios", roles: ["admin", "gestor de empresas"] },
+    { to: "/addRelatorio", label: "Relatorio", roles: ["admin", "gestor de empresas"] },
+    { to: "/relatorios", label: "Relatorio", roles: ["admin", "gestor de empresas"] },
     { to: "/pagar", label: "Pagar", roles: ["admin"] },
     { to: "/publicacoes", label: "Publicacoes", roles: ["admin"] },
     { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin"] },
@@ -178,6 +180,11 @@ function App() {
               <Route path="/relatorios" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
                   <Relatorios />
+                </PrivateRoute>
+              } />
+              <Route path="/addRelatorio" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <RelatorioForm />
                 </PrivateRoute>
               } />
               <Route path="/pagar" element={
