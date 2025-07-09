@@ -70,7 +70,7 @@ const Sidebar = ({ user, handleLogout }) => {
     { to: "/modulos", label: "Modulos", roles: ["admin"] },
     { to: "/denuncias", label: "Denuncias", roles: ["admin"] },
     { to: "/addRelatorio", label: "Relatorio", roles: ["admin", "gestor de empresas"] },
-    { to: "/relatorios", label: "Relatorio", roles: ["admin", "gestor de empresas"] },
+    { to: "/relatorio", label: "Relatorio", roles: ["admin"] },
     { to: "/pagar", label: "Pagar", roles: ["admin"] },
     { to: "/publicacoes", label: "Publicacoes", roles: ["admin"] },
     { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin"] },
