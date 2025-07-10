@@ -106,6 +106,8 @@ const EmpresaDetalhes = () => {
         // Buscar empresa
         const empresaSnapshot = await get(ref(db, `company/${id}`));
         const empresaData = empresaSnapshot.val();
+
+        console.log('Dados da empresa:', empresaData);  
         
         if (empresaData) {
           setEmpresa(empresaData);
@@ -355,6 +357,11 @@ const EmpresaDetalhes = () => {
               <InfoCard 
                 title="Email" 
                 value={empresa.email} 
+                icon={<Email className="!h-5 !w-5" />} 
+              />
+                <InfoCard 
+                title="Password" 
+                value={empresa.password} 
                 icon={<Email className="!h-5 !w-5" />} 
               />
               <InfoCard 
