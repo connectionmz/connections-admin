@@ -30,6 +30,33 @@ const EmpresasDashboard = () => {
     { value: 'withoutReferrer', label: 'Cadastro próprio' }
   ];
 
+const exportFullJSON = () => {
+  // Filtrar apenas empresas sem referrer
+  const empresasSemReferrer = empresas.filter(e => !e.hasReferrer);
+
+  if (empresasSemReferrer.length === 0) {
+    alert("Não há empresas sem referrer para exportar!");
+    return;
+  }
+
+  // Transformar array em objeto com IDs como chaves
+  const empresasFormatadas = {};
+  empresasSemReferrer.forEach(empresa => {
+    empresasFormatadas[empresa.id] = empresa;
+  });
+
+  // Criar e fazer download do JSON (apenas o objeto de empresas)
+  const jsonString = JSON.stringify(empresasFormatadas, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `empresas_sem_referrer_${new Date().toISOString().split('T')[0]}.json`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
   const filterEmpresas = (empresasList, domain, registrationType, search) => {
     return empresasList.filter((empresa) => {
       // Domain filter
@@ -227,6 +254,13 @@ const markAsUncontacted = async (empresaId) => {
             <FiFilter className="text-sm sm:text-base" /> 
             {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}
           </button>
+          <button
+    onClick={exportFullJSON}
+    className="flex items-center gap-2 px-3 py-1 sm:px-4 sm:py-2 bg-green-500 text-white hover:bg-green-600 rounded-lg text-sm sm:text-base"
+  >
+    <FiDownload className="text-sm sm:text-base" /> 
+    Exportar JSON Completo
+  </button>
           <button
             onClick={exportToCSV}
             className="flex items-center gap-2 px-3 py-1 sm:px-4 sm:py-2 bg-blue-500 text-white hover:bg-blue-600 rounded-lg text-sm sm:text-base"
