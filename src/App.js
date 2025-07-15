@@ -30,6 +30,7 @@ import ChangePassword from './components/ChangePassword';
 import EmpresasGmail from './components/EmpresasGmail';
 import Modulos from './components/Modulos';
 import RelatorioForm from './components/RelatorioForm';
+import SubscriptionConfirmation from './components/SubscriptionConfirmation';
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
@@ -71,7 +72,8 @@ const Sidebar = ({ user, handleLogout }) => {
     { to: "/denuncias", label: "Denuncias", roles: ["admin"] },
     { to: "/addRelatorio", label: "Relatorio", roles: ["admin", "gestor de empresas"] },
     { to: "/relatorio", label: "Relatorio", roles: ["admin"] },
-    { to: "/pagar", label: "Pagar", roles: ["admin"] },
+    { to: "/pagar", label: "Pagamentos", roles: ["admin"] },
+    { to: "/pagarModulo", label: "Pagar", roles: ["admin"] },
     { to: "/publicacoes", label: "Publicacoes", roles: ["admin"] },
     { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin"] },
     { to: "/publico", label: "Setor Público", roles: ["admin"] },
@@ -190,6 +192,11 @@ function App() {
               <Route path="/pagar" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
                   <Pagar />
+                </PrivateRoute>
+              } />
+                <Route path="/pagarModulo" element={
+                <PrivateRoute user={user} allowedRoles={['admin']}>
+                  <SubscriptionConfirmation />
                 </PrivateRoute>
               } />
               <Route path="/validar" element={
