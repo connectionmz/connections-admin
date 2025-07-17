@@ -58,9 +58,43 @@ const Validacoes = () => {
         ? "Empresa validada!" 
         : "Invalidação da Empresa";
     
-      const text = action === "validar"
-        ? `Parabéns!\n\nSua empresa ${companyName} foi verificada e validada com sucesso.\n\nAcesse nosso portal: https://www.connectionmozambique.com/\n\nAtenciosamente,\nEquipe Connection Mozambique`
-        : `Lamentamos informar que sua empresa ${companyName} foi invalidada devido a: ${invalidateReason}.\n\nObservações: ${invalidateNote}\n\nPara mais informações, entre em contato com nosso suporte: suporte@connectionmozambique.com\n\nAtenciosamente,\nEquipe Connection Mozambique`;
+const text = action === "validar"
+  ? `A sua conta na Connection Mozambique foi validada com sucesso! 🎉 Parabéns, ${companyName}!
+
+Agora é o momento ideal para melhorar o seu perfil e destacar a sua empresa na nossa plataforma.
+
+Por que completar o seu perfil?
+✔ Credibilidade: Um perfil completo transmite profissionalismo e confiança.  
+✔ Visibilidade: Aumenta as chances de ser encontrado por clientes e parceiros.  
+✔ Oportunidades: Empresas com perfis completos recebem mais conexões e negócios.
+
+O que deve incluir?
+📌 Visão, Missão e Valores: Mostre a identidade da sua empresa.  
+🌐 Links das redes sociais (Facebook, LinkedIn, Instagram, site, etc.).  
+🖼 Logotipo e imagem de capa: Reforce a sua marca visualmente.  
+📢 Publicações no feed: Partilhe projetos, serviços e depoimentos para engajar a comunidade.
+
+Como fazer?
+Aceda ao seu perfil: https://www.connectionmozambique.com/perfil
+Clique em "Editar Perfil" e preencha todas as secções.  
+
+Publique conteúdos relevantes no seu feed para aumentar o alcance.
+
+Se precisar de ajuda, estamos por aqui.  
+Atenciosamente,  
+Equipe Connection Mozambique  
+suporte@connectionmozambique.com`
+  : `Lamentamos informar que a sua empresa ${companyName} não foi validada.
+
+Motivo: ${invalidateReason}  
+Observações: ${invalidateNote}
+
+Sugerimos que reveja os dados da sua empresa e tente novamente.
+
+Para mais informações, entre em contato com o nosso suporte: suporte@connectionmozambique.com
+
+Atenciosamente,  
+Equipe Connection Mozambique`;
 
       const emailData = {
         to: email,
