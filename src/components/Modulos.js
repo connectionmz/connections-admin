@@ -120,11 +120,9 @@ const Modulos = () => {
           currentModulos.push(moduloData);
         }
       } else {
-        // Add new module
         currentModulos.push(moduloData);
       }
 
-      // Clean the array before saving (replace undefined with null)
       const cleanModulos = currentModulos.map(modulo => modulo || null);
       
       await set(modulosRef, cleanModulos);

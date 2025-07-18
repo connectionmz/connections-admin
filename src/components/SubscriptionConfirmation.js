@@ -29,7 +29,7 @@ const SubscriptionConfirmation = ({ user }) => {
   const [companySearch, setCompanySearch] = useState('');
   const navigate = useNavigate();
 
-  // Carregar empresas, módulos e subscrições
+  // Load companies, modules, and subscriptions
   useEffect(() => {
     const companiesRef = ref(db, 'company');
     const modulesRef = ref(db, 'modules/modulos');
@@ -37,27 +37,28 @@ const SubscriptionConfirmation = ({ user }) => {
 
     const unsubscribeCompanies = onValue(companiesRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
-        setCompanies(Object.keys(data).map(key => ({
-          id: key,
-          ...data[key]
-        })));
+      const companiesArray = data ? Object.keys(data).map(key => ({
+        id: key,
+        ...data[key]
+      })) : [];
+      setCompanies(companiesArray);
+      
+      // Reset selected company if it no longer exists
+      if (selectedCompany && !companiesArray.some(c => c.id === selectedCompany)) {
+        setSelectedCompany('');
       }
     });
 
     const unsubscribeModules = onValue(modulesRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
-        setModules(Object.keys(data).map(key => ({
-          key,
-          ...data[key]
-        })));
-      }
+      setModules(data ? Object.keys(data).map(key => ({
+        key,
+        ...data[key]
+      })) : []);
     });
 
     const unsubscribeSubscriptions = onValue(subscriptionsRef, (snapshot) => {
-      const data = snapshot.val();
-      setSubscriptions(data || {});
+      setSubscriptions(snapshot.val() || {});
     });
 
     return () => {
@@ -65,9 +66,9 @@ const SubscriptionConfirmation = ({ user }) => {
       unsubscribeModules();
       unsubscribeSubscriptions();
     };
-  }, []);
+  }, [selectedCompany]);
 
-  // Verificar se a empresa já tem o módulo ativo
+  // Check if company already has the module active
   const companyHasModule = (companyId, moduleKey) => {
     if (!subscriptions[companyId] || !subscriptions[companyId][moduleKey]) {
       return false;
@@ -76,16 +77,15 @@ const SubscriptionConfirmation = ({ user }) => {
     const subscription = subscriptions[companyId][moduleKey];
     const now = Date.now();
     
-    // Verifica se a subscrição está ativa e não expirada
     return subscription.isActive && subscription.end > now;
   };
 
-  // Filtrar módulos
+  // Filter modules
   const filteredModules = modules.filter(module => 
     module.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Filtrar empresas
+  // Filter companies
   const filteredCompanies = companies.filter(company => 
     company.nome.toLowerCase().includes(companySearch.toLowerCase()) ||
     company.sector.toLowerCase().includes(companySearch.toLowerCase())
@@ -182,9 +182,17 @@ const SubscriptionConfirmation = ({ user }) => {
 
     try {
       const company = companies.find(c => c.id === selectedCompany);
+
+      console.log(company)
+
+      
+      if (!company) {
+        throw new Error('Empresa não encontrada. Por favor, selecione uma empresa válida.');
+      }
+
       const now = Date.now();
 
-      // Verificar novamente se algum módulo já está ativo antes de confirmar
+      // Verify again if any module is already active before confirming
       const hasExistingSubscriptions = cart.some(item => 
         companyHasModule(company.id, item.moduleKey)
       );
@@ -193,14 +201,14 @@ const SubscriptionConfirmation = ({ user }) => {
         throw new Error('Um ou mais módulos selecionados já estão ativos para esta empresa');
       }
 
-      // Criar pagamento para cada item no carrinho
+      // Create payment for each item in cart
       for (const item of cart) {
         const subscriptionEnd = calculateSubscriptionEnd(item.validade);
 
         const paymentData = {
-          userId: user.id,
-          userName: user.displayName || '',
-          userEmail: user.email || '',
+          userId: company.id,
+          userName: company.displayName || '',
+          userEmail: company.email || '',
           nome: company.nome,
           telefone: company.phone || '',
           moduleKey: item.moduleKey,
@@ -224,12 +232,12 @@ const SubscriptionConfirmation = ({ user }) => {
           }
         };
 
-        // Criar registro de pagamento
+        // Create payment record
         const paymentsRef = ref(db, 'payments');
         const newPaymentRef = push(paymentsRef);
         await update(newPaymentRef, paymentData);
 
-        // Atualizar subscrição
+        // Update subscription
         await updateSubscription(company.id, item, newPaymentRef, now, subscriptionEnd);
       }
 
@@ -238,6 +246,7 @@ const SubscriptionConfirmation = ({ user }) => {
       setTimeout(() => {
         setCart([]);
         setSelectedCompany('');
+        setNotes('');
         setSuccess(false);
       }, 3000);
     } catch (err) {
@@ -256,14 +265,14 @@ const SubscriptionConfirmation = ({ user }) => {
         </h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Painel de Seleção */}
+          {/* Selection Panel */}
           <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
             <div className="flex items-center mb-4">
               <FaBuilding className="text-blue-500 mr-2" />
               <h2 className="text-lg md:text-xl font-semibold text-gray-700">Seleção de Empresa</h2>
             </div>
 
-            {/* Busca de Empresas */}
+            {/* Company Search */}
             <div className="relative mb-4">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <FaSearch className="text-gray-400" />
@@ -277,7 +286,7 @@ const SubscriptionConfirmation = ({ user }) => {
               />
             </div>
 
-            {/* Lista de Empresas */}
+            {/* Company List */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">Selecione uma empresa:</label>
               <div className="max-h-48 overflow-y-auto border rounded-lg">
@@ -306,7 +315,7 @@ const SubscriptionConfirmation = ({ user }) => {
               <h2 className="text-lg md:text-xl font-semibold text-gray-700">Módulos Disponíveis</h2>
             </div>
 
-            {/* Busca de Módulos */}
+            {/* Module Search */}
             <div className="relative mb-4">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <FaSearch className="text-gray-400" />
@@ -320,7 +329,7 @@ const SubscriptionConfirmation = ({ user }) => {
               />
             </div>
 
-            {/* Lista de Módulos */}
+            {/* Module List */}
             <div className="max-h-96 overflow-y-auto space-y-3">
               {filteredModules.length > 0 ? (
                 filteredModules.map(module => {
@@ -368,7 +377,7 @@ const SubscriptionConfirmation = ({ user }) => {
             </div>
           </div>
 
-          {/* Painel do Carrinho */}
+          {/* Shopping Cart Panel */}
           <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
             <div className="flex items-center mb-4">
               <FaShoppingCart className="text-green-500 mr-2" />
@@ -498,7 +507,7 @@ const SubscriptionConfirmation = ({ user }) => {
         </div>
       </div>
 
-      {/* Modal de Confirmação */}
+      {/* Confirmation Modal */}
       {confirmOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
