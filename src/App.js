@@ -32,6 +32,7 @@ import Modulos from './components/Modulos';
 import RelatorioForm from './components/RelatorioForm';
 import SubscriptionConfirmation from './components/SubscriptionConfirmation';
 import Feedback from './components/Feedback';
+import Singulares from './components/Singulares';
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
@@ -60,6 +61,7 @@ const Sidebar = ({ user, handleLogout }) => {
   const menuItems = [
     { to: "/", label: "Dashboard", roles: ["admin", "contabilista"] },
     { to: "/empresas", label: "Empresas", roles: ["admin", "gestor de empresas"] },
+    { to: "/singulares", label: "Singulares", roles: ["admin", "gestor de empresas"] },
     { to: "/CadastroEmpresa", label: "Cadastrar Empresa", roles: ["admin", "gestor de empresas"] },
     { to: "/validar", label: "Validações", roles: ["admin", "gestor de empresas"] },
     { to: "/empresaRepositorio", label: "Empresas Repositorio", roles: ["admin", "gestor de empresas"] },
@@ -179,6 +181,12 @@ function App() {
               <Route path="/empresas" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
                   <Empresas />
+                </PrivateRoute>
+              } />
+
+              <Route path="/singulares" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <Singulares />
                 </PrivateRoute>
               } />
               <Route path="/relatorios" element={
