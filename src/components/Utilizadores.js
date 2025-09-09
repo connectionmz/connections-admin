@@ -356,11 +356,7 @@ const Utilizadores = () => {
       alert('Este email já está cadastrado');
       return;
     }
-
-    // Senha padrão
-    const password = '@Connection2024'; // Senha mais robusta mas ainda padrão
-    
-    // Criar usuário no Firebase Auth
+    const password = '@Connection2024'; 
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     
     const newUser = {
@@ -374,16 +370,19 @@ const Utilizadores = () => {
     };
 
     await set(ref(db, `utilizadores/${userCredential.user.uid}`), newUser);
-    
     setName('');
     setEmail('');
     setRolesSelecionadas([]);
-    
+
     alert(`Usuário cadastrado com sucesso! Senha inicial: ${password}`);
+
     fetchUsers();
+
   } catch (error) {
+
     console.error('Erro ao cadastrar:', error);
     alert(`Erro ao cadastrar usuário: ${error.message}`);
+
   }
 };
 

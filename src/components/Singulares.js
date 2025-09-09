@@ -284,7 +284,7 @@ const Singulares = () => {
               {filteredSingulares.map((singular) => (
                 <li key={singular.id} className="hover:bg-gray-50 transition-colors">
                   <Link 
-                    to={`/singulares/${singular.id}`} 
+                    to={`/versingulares/${singular.id}`} 
                     className="block px-4 py-4 sm:px-6"
                   >
                     <div className="flex items-center justify-between">

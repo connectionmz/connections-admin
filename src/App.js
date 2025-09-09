@@ -33,6 +33,7 @@ import RelatorioForm from './components/RelatorioForm';
 import SubscriptionConfirmation from './components/SubscriptionConfirmation';
 import Feedback from './components/Feedback';
 import Singulares from './components/Singulares';
+import Versingular from './components/VerSingular';
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
@@ -187,6 +188,11 @@ function App() {
               <Route path="/singulares" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
                   <Singulares />
+                </PrivateRoute>
+              } />
+              <Route path="/versingulares/:id" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <Versingular />
                 </PrivateRoute>
               } />
               <Route path="/relatorios" element={
