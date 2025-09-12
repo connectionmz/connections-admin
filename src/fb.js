@@ -4,7 +4,7 @@ import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCNNNmVpL9mmwPwighQkz53YlOadIvdRas",
+  apiKey: "AIzaSyD5kPi8SWWETgvqEX0fT5KlrKAXqEajtio",
   authDomain: "connectionmz.firebaseapp.com",
   projectId: "connectionmz",
   storageBucket: "connectionmz.firebasestorage.app",
