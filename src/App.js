@@ -34,6 +34,7 @@ import SubscriptionConfirmation from './components/SubscriptionConfirmation';
 import Feedback from './components/Feedback';
 import Singulares from './components/Singulares';
 import Versingular from './components/VerSingular';
+import Concursos from './components/roles/Concursos';
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
@@ -71,6 +72,7 @@ const Sidebar = ({ user, handleLogout }) => {
     { to: "/anuncios", label: "Anúncios", roles: ["admin", "contabilista"] },
     { to: "/usuarios", label: "Usuários", roles: ["admin"] },
     { to: "/cotacoes", label: "Cotações", roles: ["admin", "gestor de cotações"] },
+    { to: "/concursos", label: "concursos", roles: ["admin", "gestor de cotações"] },
     { to: "/sectores", label: "Sectores", roles: ["admin", "gestor de cotações"] },
     { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
     { to: "/modulos", label: "Modulos", roles: ["admin"] },
@@ -274,6 +276,11 @@ function App() {
               <Route path="/cotacoes" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
                   <Cotacoes />
+                </PrivateRoute>
+              } />
+              <Route path="/concursos" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
+                  <Concursos />
                 </PrivateRoute>
               } />
               <Route path="/modulos" element={

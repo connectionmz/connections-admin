@@ -11,12 +11,27 @@ import {
   FaPlus,
   FaMinus,
   FaSearch,
-  FaExclamationTriangle
+  FaExclamationTriangle,
+  FaUsers,
+  FaFilter,
+  FaMapMarkerAlt,
+  FaIndustry,
+  FaEye,
+  FaEyeSlash,
+  FaCreditCard,
+  FaStore,
+  FaBox,
+  FaMoneyBillWave,
+  FaCalendarAlt,
+  FaGift,
+  FaClock,
+  FaCrown,
+  FaStar
 } from 'react-icons/fa';
 
 const SubscriptionConfirmation = ({ user }) => {
   const [companies, setCompanies] = useState([]);
-  const [selectedCompany, setSelectedCompany] = useState('');
+  const [selectedCompanies, setSelectedCompanies] = useState([]);
   const [modules, setModules] = useState([]);
   const [cart, setCart] = useState([]);
   const [subscriptions, setSubscriptions] = useState({});
@@ -27,13 +42,21 @@ const SubscriptionConfirmation = ({ user }) => {
   const [notes, setNotes] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [companySearch, setCompanySearch] = useState('');
+  const [provinces, setProvinces] = useState([]);
+  const [sectors, setSectors] = useState([]);
+  const [selectedProvince, setSelectedProvince] = useState('');
+  const [selectedSector, setSelectedSector] = useState('');
+  const [showFilters, setShowFilters] = useState(true);
+  
   const navigate = useNavigate();
 
-  // Load companies, modules, and subscriptions
+  // Load companies, modules, subscriptions, provinces and sectors
   useEffect(() => {
     const companiesRef = ref(db, 'company');
     const modulesRef = ref(db, 'modules/modulos');
     const subscriptionsRef = ref(db, 'subscriptions');
+    const provinciasRef = ref(db, 'provincias');
+    const sectoresRef = ref(db, 'sectores_de_atividade');
 
     const unsubscribeCompanies = onValue(companiesRef, (snapshot) => {
       const data = snapshot.val();
@@ -42,11 +65,6 @@ const SubscriptionConfirmation = ({ user }) => {
         ...data[key]
       })) : [];
       setCompanies(companiesArray);
-      
-      // Reset selected company if it no longer exists
-      if (selectedCompany && !companiesArray.some(c => c.id === selectedCompany)) {
-        setSelectedCompany('');
-      }
     });
 
     const unsubscribeModules = onValue(modulesRef, (snapshot) => {
@@ -61,12 +79,32 @@ const SubscriptionConfirmation = ({ user }) => {
       setSubscriptions(snapshot.val() || {});
     });
 
+    const unsubscribeProvinces = onValue(provinciasRef, (snapshot) => {
+      const data = snapshot.val();
+      const provincesArray = data ? Object.keys(data).map(key => ({
+        id: key,
+        ...data[key]
+      })) : [];
+      setProvinces(provincesArray);
+    });
+
+    const unsubscribeSectors = onValue(sectoresRef, (snapshot) => {
+      const data = snapshot.val();
+      const sectorsArray = data ? Object.keys(data).map(key => ({
+        id: key,
+        ...data[key]
+      })) : [];
+      setSectors(sectorsArray);
+    });
+
     return () => {
       unsubscribeCompanies();
       unsubscribeModules();
       unsubscribeSubscriptions();
+      unsubscribeProvinces();
+      unsubscribeSectors();
     };
-  }, [selectedCompany]);
+  }, []);
 
   // Check if company already has the module active
   const companyHasModule = (companyId, moduleKey) => {
@@ -80,33 +118,123 @@ const SubscriptionConfirmation = ({ user }) => {
     return subscription.isActive && subscription.end > now;
   };
 
+  // Check if company already has trial for this module
+  const companyHasTrial = (companyId, moduleKey) => {
+    if (!subscriptions[companyId] || !subscriptions[companyId][moduleKey]) {
+      return false;
+    }
+    
+    const subscription = subscriptions[companyId][moduleKey];
+    return subscription.subscriptionType === 'trial';
+  };
+
+  // Toggle company selection
+  const toggleCompanySelection = (companyId) => {
+    setSelectedCompanies(prev => {
+      if (prev.includes(companyId)) {
+        return prev.filter(id => id !== companyId);
+      } else {
+        return [...prev, companyId];
+      }
+    });
+    setError('');
+  };
+
+  // Select all filtered companies
+  const selectAllFilteredCompanies = () => {
+    setSelectedCompanies(filteredCompanies.map(company => company.id));
+  };
+
+  // Select companies by filter
+  const selectCompaniesByFilter = (filterType, value) => {
+    let companiesToSelect = [];
+    
+    switch (filterType) {
+      case 'province':
+        companiesToSelect = companies
+          .filter(company => company.province === value)
+          .map(company => company.id);
+        break;
+      case 'sector':
+        companiesToSelect = companies
+          .filter(company => company.sector === value)
+          .map(company => company.id);
+        break;
+      case 'all':
+        companiesToSelect = companies.map(company => company.id);
+        break;
+      default:
+        return;
+    }
+    
+    setSelectedCompanies(companiesToSelect);
+  };
+
+  // Deselect all companies
+  const deselectAllCompanies = () => {
+    setSelectedCompanies([]);
+  };
+
+  // Filter companies based on all criteria
+  const filteredCompanies = companies.filter(company => {
+    const matchesSearch = company.nome.toLowerCase().includes(companySearch.toLowerCase()) ||
+                         company.sector.toLowerCase().includes(companySearch.toLowerCase());
+    
+    const matchesProvince = !selectedProvince || company.province === selectedProvince;
+    const matchesSector = !selectedSector || company.sector === selectedSector;
+    
+    return matchesSearch && matchesProvince && matchesSector;
+  });
+
   // Filter modules
   const filteredModules = modules.filter(module => 
     module.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Filter companies
-  const filteredCompanies = companies.filter(company => 
-    company.nome.toLowerCase().includes(companySearch.toLowerCase()) ||
-    company.sector.toLowerCase().includes(companySearch.toLowerCase())
-  );
+  // Clear all filters
+  const clearFilters = () => {
+    setSelectedProvince('');
+    setSelectedSector('');
+    setCompanySearch('');
+  };
 
-  const handleAddToCart = (module) => {
-    if (!selectedCompany) {
-      setError('Selecione uma empresa antes de adicionar módulos');
+  // Get unique provinces from companies
+  const availableProvinces = [...new Set(companies.map(company => company.province).filter(Boolean))];
+
+  // Get unique sectors from companies
+  const availableSectors = [...new Set(companies.map(company => company.sector).filter(Boolean))];
+
+  const handleAddToCart = (module, subscriptionType) => {
+    if (selectedCompanies.length === 0) {
+      setError('Selecione pelo menos uma empresa antes de adicionar módulos');
       return;
     }
 
-    if (companyHasModule(selectedCompany, module.key)) {
-      setError('Esta empresa já possui uma subscrição ativa para este módulo');
+    // Check if any selected company already has this module
+    const companiesWithExisting = selectedCompanies.filter(companyId => 
+      subscriptionType === 'paid' ? companyHasModule(companyId, module.key) : companyHasTrial(companyId, module.key)
+    );
+
+    if (companiesWithExisting.length > 0) {
+      const companyNames = companiesWithExisting.map(companyId => 
+        companies.find(c => c.id === companyId)?.nome
+      ).join(', ');
+      
+      setError(`Algumas empresas já possuem este módulo ${subscriptionType === 'trial' ? 'em trial' : 'ativo'}: ${companyNames}`);
       return;
     }
 
-    const existingItem = cart.find(item => item.moduleKey === module.key);
+    const existingItem = cart.find(item => 
+      item.moduleKey === module.key && item.subscriptionType === subscriptionType
+    );
     
     if (existingItem) {
+      if (subscriptionType === 'trial') {
+        setError('Não é possível aumentar a quantidade para trials.');
+        return;
+      }
       setCart(cart.map(item => 
-        item.moduleKey === module.key 
+        item.moduleKey === module.key && item.subscriptionType === subscriptionType
           ? { ...item, quantity: item.quantity + 1 } 
           : item
       ));
@@ -114,39 +242,56 @@ const SubscriptionConfirmation = ({ user }) => {
       setCart([...cart, {
         moduleKey: module.key,
         moduleName: module.name,
-        price: module.price,
+        price: subscriptionType === 'paid' ? module.price : 0,
         validade: module.validade,
-        quantity: 1
+        quantity: 1,
+        subscriptionType: subscriptionType,
+        forAllSelected: true
       }]);
     }
     setError('');
   };
 
-  const handleRemoveFromCart = (moduleKey) => {
-    setCart(cart.filter(item => item.moduleKey !== moduleKey));
+  const handleRemoveFromCart = (moduleKey, itemSubscriptionType) => {
+    setCart(cart.filter(item => !(item.moduleKey === moduleKey && item.subscriptionType === itemSubscriptionType)));
   };
 
-  const handleQuantityChange = (moduleKey, newQuantity) => {
+  const handleQuantityChange = (moduleKey, itemSubscriptionType, newQuantity) => {
     if (newQuantity < 1) return;
     
+    const item = cart.find(i => i.moduleKey === moduleKey && i.subscriptionType === itemSubscriptionType);
+    if (item && item.subscriptionType === 'trial' && newQuantity > 1) return;
+    
     setCart(cart.map(item => 
-      item.moduleKey === moduleKey 
+      item.moduleKey === moduleKey && item.subscriptionType === itemSubscriptionType
         ? { ...item, quantity: newQuantity } 
         : item
     ));
   };
 
   const calculateTotal = () => {
-    return cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+    const totalPerCompany = cart.reduce((total, item) => {
+      if (item.subscriptionType === 'paid') {
+        return total + (item.price * item.quantity);
+      }
+      return total;
+    }, 0);
+    return totalPerCompany * selectedCompanies.length;
   };
 
-  const calculateSubscriptionEnd = (validade) => {
+  const calculateSubscriptionEnd = (validade, type, quantity) => {
     const now = Date.now();
+    
+    if (type === 'trial') {
+      // 7 dias em milissegundos
+      return now + (7 * 24 * 60 * 60 * 1000);
+    }
+    
     const durationInMs = {
       Mensal: 30 * 24 * 60 * 60 * 1000, 
       Anual: 365 * 24 * 60 * 60 * 1000,
     };
-    return now + (durationInMs[validade] || durationInMs.Mensal);
+    return now + ((durationInMs[validade] || durationInMs.Mensal) * quantity);
   };
 
   const updateSubscription = async (companyId, item, newPaymentRef, now, subscriptionEnd) => {
@@ -154,12 +299,14 @@ const SubscriptionConfirmation = ({ user }) => {
       isActive: true,
       start: now,
       end: subscriptionEnd,
-      durationDays: item.validade === 'Anual' ? 365 : 30,
+      durationDays: item.subscriptionType === 'trial' ? 7 : (item.validade === 'Anual' ? 365 : 30) * item.quantity,
       moduleKey: item.moduleKey,
       moduleName: item.moduleName,
-      subscriptionType: item.validade.toLowerCase(),
-      paymentId: newPaymentRef.key,
+      subscriptionType: item.subscriptionType,
+      paymentId: item.subscriptionType === 'paid' ? newPaymentRef.key : null,
       validade: item.validade,
+      isTrial: item.subscriptionType === 'trial',
+      trialConverted: false
     };
 
     const subscriptionRef = ref(db, `subscriptions/${companyId}/${item.moduleKey}`);
@@ -167,8 +314,8 @@ const SubscriptionConfirmation = ({ user }) => {
   };
 
   const handleConfirmSubscription = async () => {
-    if (!selectedCompany) {
-      setError('Por favor, selecione uma empresa');
+    if (selectedCompanies.length === 0) {
+      setError('Por favor, selecione pelo menos uma empresa');
       return;
     }
 
@@ -181,402 +328,744 @@ const SubscriptionConfirmation = ({ user }) => {
     setError('');
 
     try {
-      const company = companies.find(c => c.id === selectedCompany);
-
-      console.log(company)
-
-      
-      if (!company) {
-        throw new Error('Empresa não encontrada. Por favor, selecione uma empresa válida.');
-      }
-
       const now = Date.now();
 
-      // Verify again if any module is already active before confirming
-      const hasExistingSubscriptions = cart.some(item => 
-        companyHasModule(company.id, item.moduleKey)
-      );
+      // Verify again if any module is already active for any selected company
+      const companiesWithExistingSubscriptions = [];
+      
+      selectedCompanies.forEach(companyId => {
+        cart.forEach(item => {
+          if (item.subscriptionType === 'paid' && companyHasModule(companyId, item.moduleKey)) {
+            const companyName = companies.find(c => c.id === companyId)?.nome;
+            if (!companiesWithExistingSubscriptions.includes(companyName)) {
+              companiesWithExistingSubscriptions.push(companyName);
+            }
+          }
+          if (item.subscriptionType === 'trial' && companyHasTrial(companyId, item.moduleKey)) {
+            const companyName = companies.find(c => c.id === companyId)?.nome;
+            if (!companiesWithExistingSubscriptions.includes(companyName)) {
+              companiesWithExistingSubscriptions.push(companyName);
+            }
+          }
+        });
+      });
 
-      if (hasExistingSubscriptions) {
-        throw new Error('Um ou mais módulos selecionados já estão ativos para esta empresa');
+      if (companiesWithExistingSubscriptions.length > 0) {
+        throw new Error(`Algumas empresas já possuem subscrições ativas: ${companiesWithExistingSubscriptions.join(', ')}`);
       }
 
-      // Create payment for each item in cart
-      for (const item of cart) {
-        const subscriptionEnd = calculateSubscriptionEnd(item.validade);
+      // Create payments and subscriptions for each company and each item
+      for (const companyId of selectedCompanies) {
+        const company = companies.find(c => c.id === companyId);
+        
+        if (!company) {
+          console.warn(`Empresa com ID ${companyId} não encontrada, continuando...`);
+          continue;
+        }
 
-        const paymentData = {
-          userId: company.id,
-          userName: company.displayName || '',
-          userEmail: company.email || '',
-          nome: company.nome,
-          telefone: company.phone || '',
-          moduleKey: item.moduleKey,
-          moduleName: item.moduleName,
-          moduleType: 'standard',
-          amount: item.price * item.quantity,
-          reference: company.nome,
-          status: 'pago',
-          timestamp: now,
-          updatedAt: now,
-          notes,
-          paymentMethod: 'manual',
-          subscription: {
-            isActive: true,
-            start: now,
-            end: subscriptionEnd,
-            durationDays: item.validade === 'Anual' ? 365 : 30,
-            moduleKey: item.moduleKey,
-            moduleName: item.moduleName,
-            subscriptionType: item.validade.toLowerCase(),
+        for (const item of cart) {
+          const subscriptionEnd = calculateSubscriptionEnd(item.validade, item.subscriptionType, item.quantity);
+
+          // Only create payment record for paid subscriptions
+          let newPaymentRef = null;
+          if (item.subscriptionType === 'paid') {
+            const paymentData = {
+              userId: company.id,
+              userName: company.displayName || '',
+              userEmail: company.email || '',
+              nome: company.nome,
+              telefone: company.phone || '',
+              moduleKey: item.moduleKey,
+              moduleName: item.moduleName,
+              moduleType: 'standard',
+              amount: item.price * item.quantity,
+              reference: company.nome,
+              status: 'pago',
+              timestamp: now,
+              updatedAt: now,
+              notes: `${notes} | Aplicado a múltiplas empresas`,
+              paymentMethod: 'manual',
+              subscription: {
+                isActive: true,
+                start: now,
+                end: subscriptionEnd,
+                durationDays: item.validade === 'Anual' ? 365 * item.quantity : 30 * item.quantity,
+                moduleKey: item.moduleKey,
+                moduleName: item.moduleName,
+                subscriptionType: item.subscriptionType,
+              }
+            };
+
+            const paymentsRef = ref(db, 'payments');
+            newPaymentRef = push(paymentsRef);
+            await update(newPaymentRef, paymentData);
           }
-        };
 
-        // Create payment record
-        const paymentsRef = ref(db, 'payments');
-        const newPaymentRef = push(paymentsRef);
-        await update(newPaymentRef, paymentData);
+          // Update subscription for both paid and trial
+          await updateSubscription(company.id, item, newPaymentRef, now, subscriptionEnd);
 
-        // Update subscription
-        await updateSubscription(company.id, item, newPaymentRef, now, subscriptionEnd);
+          // Create trial record if it's a trial
+          if (item.subscriptionType === 'trial') {
+            const trialData = {
+              companyId: company.id,
+              companyName: company.nome,
+              moduleKey: item.moduleKey,
+              moduleName: item.moduleName,
+              startDate: now,
+              endDate: subscriptionEnd,
+              status: 'active',
+              createdAt: now,
+              notes: notes
+            };
+
+            const trialsRef = ref(db, 'trials');
+            const newTrialRef = push(trialsRef);
+            await update(newTrialRef, trialData);
+          }
+        }
       }
 
       setSuccess(true);
       setConfirmOpen(false);
       setTimeout(() => {
         setCart([]);
-        setSelectedCompany('');
+        setSelectedCompanies([]);
         setNotes('');
         setSuccess(false);
       }, 3000);
     } catch (err) {
-      console.error('Erro ao confirmar subscrição:', err);
-      setError(err.message || 'Ocorreu um erro ao confirmar a subscrição');
+      console.error('Erro ao confirmar subscrições:', err);
+      setError(err.message || 'Ocorreu um erro ao confirmar as subscrições');
     } finally {
       setLoading(false);
     }
   };
 
+  // Stats for dashboard
+  const stats = {
+    totalCompanies: companies.length,
+    selectedCompanies: selectedCompanies.length,
+    totalModules: modules.length,
+    cartItems: cart.length,
+    totalAmount: calculateTotal(),
+    trialItems: cart.filter(item => item.subscriptionType === 'trial').length,
+    paidItems: cart.filter(item => item.subscriptionType === 'paid').length
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-6">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6 md:mb-8">
-          Confirmação Manual de Subscrições
-        </h1>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Selection Panel */}
-          <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
-            <div className="flex items-center mb-4">
-              <FaBuilding className="text-blue-500 mr-2" />
-              <h2 className="text-lg md:text-xl font-semibold text-gray-700">Seleção de Empresa</h2>
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-2">
+                Ativação em Massa de Subscrições
+              </h1>
+              <p className="text-gray-600 text-lg">
+                Gerencie subscrições pagas e trials para múltiplas empresas
+              </p>
             </div>
-
-            {/* Company Search */}
-            <div className="relative mb-4">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FaSearch className="text-gray-400" />
-              </div>
-              <input
-                type="text"
-                placeholder="Pesquisar empresa..."
-                className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={companySearch}
-                onChange={(e) => setCompanySearch(e.target.value)}
-              />
-            </div>
-
-            {/* Company List */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Selecione uma empresa:</label>
-              <div className="max-h-48 overflow-y-auto border rounded-lg">
-                {filteredCompanies.length > 0 ? (
-                  filteredCompanies.map(company => (
-                    <div 
-                      key={company.id}
-                      className={`p-3 border-b cursor-pointer hover:bg-gray-50 ${selectedCompany === company.id ? 'bg-blue-50' : ''}`}
-                      onClick={() => {
-                        setSelectedCompany(company.id);
-                        setError('');
-                      }}
-                    >
-                      <div className="font-medium">{company.nome}</div>
-                      <div className="text-sm text-gray-600">{company.sector}</div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="p-3 text-center text-gray-500">Nenhuma empresa encontrada</div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center mb-4">
-              <FaShoppingCart className="text-green-500 mr-2" />
-              <h2 className="text-lg md:text-xl font-semibold text-gray-700">Módulos Disponíveis</h2>
-            </div>
-
-            {/* Module Search */}
-            <div className="relative mb-4">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FaSearch className="text-gray-400" />
-              </div>
-              <input
-                type="text"
-                placeholder="Pesquisar módulo..."
-                className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-
-            {/* Module List */}
-            <div className="max-h-96 overflow-y-auto space-y-3">
-              {filteredModules.length > 0 ? (
-                filteredModules.map(module => {
-                  const isModuleActive = selectedCompany && companyHasModule(selectedCompany, module.key);
-                  
-                  return (
-                    <div 
-                      key={module.key} 
-                      className={`p-3 border rounded-lg hover:shadow-md transition-shadow ${
-                        isModuleActive ? 'bg-gray-100' : ''
-                      }`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <h3 className="font-medium">{module.name}</h3>
-                          <p className="text-sm text-gray-600">
-                            {module.validade === 'Anual' ? '1 ano' : '1 mês'} - {module.price.toLocaleString('pt-PT')} MT
-                          </p>
-                          {isModuleActive && (
-                            <p className="text-xs text-yellow-600 mt-1 flex items-center">
-                              <FaExclamationTriangle className="mr-1" />
-                              Já ativo para esta empresa
-                            </p>
-                          )}
-                        </div>
-                        <button
-                          className={`px-3 py-1 rounded-md transition-colors flex items-center ${
-                            isModuleActive
-                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                              : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
-                          }`}
-                          onClick={() => handleAddToCart(module)}
-                          disabled={isModuleActive}
-                        >
-                          <FaPlus className="mr-1" />
-                          Adicionar
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="p-3 text-center text-gray-500">Nenhum módulo encontrado</div>
-              )}
+            <div className="bg-white rounded-xl shadow-sm p-4 text-center">
+              <div className="text-2xl font-bold text-blue-600">{stats.selectedCompanies}</div>
+              <div className="text-sm text-gray-500">Empresas Selecionadas</div>
             </div>
           </div>
 
-          {/* Shopping Cart Panel */}
-          <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
-            <div className="flex items-center mb-4">
-              <FaShoppingCart className="text-green-500 mr-2" />
-              <h2 className="text-lg md:text-xl font-semibold text-gray-700">Carrinho de Compras</h2>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
+              <div className="flex items-center">
+                <FaStore className="text-blue-500 text-xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-gray-800">{stats.totalCompanies}</div>
+                  <div className="text-sm text-gray-500">Total Empresas</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-green-500">
+              <div className="flex items-center">
+                <FaBox className="text-green-500 text-xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-gray-800">{stats.totalModules}</div>
+                  <div className="text-sm text-gray-500">Módulos</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-purple-500">
+              <div className="flex items-center">
+                <FaShoppingCart className="text-purple-500 text-xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-gray-800">{stats.cartItems}</div>
+                  <div className="text-sm text-gray-500">Itens no Carrinho</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-orange-500">
+              <div className="flex items-center">
+                <FaGift className="text-orange-500 text-xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-gray-800">{stats.trialItems}</div>
+                  <div className="text-sm text-gray-500">Trials</div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-red-500">
+              <div className="flex items-center">
+                <FaMoneyBillWave className="text-red-500 text-xl mr-3" />
+                <div>
+                  <div className="text-2xl font-bold text-gray-800">
+                    {stats.totalAmount.toLocaleString('pt-PT')} MT
+                  </div>
+                  <div className="text-sm text-gray-500">Valor Total</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          {/* Left Panel - Companies & Modules */}
+          <div className="xl:col-span-2 space-y-6">
+            {/* Companies Card */}
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+              <div className="p-6 bg-gradient-to-r from-blue-600 to-blue-700">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <FaUsers className="text-white text-2xl mr-3" />
+                    <h2 className="text-xl font-bold text-white">Seleção de Empresas</h2>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+                      {selectedCompanies.length} selecionadas
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6">
+                {/* Filters */}
+                <div className="mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <FaSearch className="text-gray-400" />
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Pesquisar empresa..."
+                        className="pl-10 pr-4 py-3 w-full border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                        value={companySearch}
+                        onChange={(e) => setCompanySearch(e.target.value)}
+                      />
+                    </div>
+                    
+                    <select
+                      value={selectedProvince}
+                      onChange={(e) => setSelectedProvince(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                    >
+                      <option value="">Todas as províncias</option>
+                      {availableProvinces.map(province => (
+                        <option key={province} value={province}>
+                          {province}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={selectedSector}
+                      onChange={(e) => setSelectedSector(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                    >
+                      <option value="">Todos os setores</option>
+                      {availableSectors.map(sector => (
+                        <option key={sector} value={sector}>
+                          {sector}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={selectAllFilteredCompanies}
+                      className="px-4 py-2 text-white rounded-lg transition-colors text-sm font-medium flex items-center bg-blue-500 hover:bg-blue-600"
+                    >
+                      <FaPlus className="mr-2" />
+                      Selecionar Todas ({filteredCompanies.length})
+                    </button>
+                    <button
+                      onClick={deselectAllCompanies}
+                      className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm font-medium flex items-center"
+                    >
+                      <FaTimes className="mr-2" />
+                      Limpar Seleção
+                    </button>
+                    <button
+                      onClick={clearFilters}
+                      className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium flex items-center"
+                    >
+                      <FaFilter className="mr-2" />
+                      Limpar Filtros
+                    </button>
+                  </div>
+                </div>
+
+                {/* Companies List */}
+                <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-xl">
+                  {filteredCompanies.length > 0 ? (
+                    <div className="divide-y divide-gray-100">
+                      {filteredCompanies.map(company => {
+                        const hasActiveSubscription = cart.some(item => 
+                          companyHasModule(company.id, item.moduleKey)
+                        );
+                        const hasActiveTrial = cart.some(item => 
+                          companyHasTrial(company.id, item.moduleKey)
+                        );
+
+                        return (
+                          <div 
+                            key={company.id}
+                            className={`p-4 cursor-pointer transition-all hover:bg-blue-50 ${
+                              selectedCompanies.includes(company.id) 
+                                ? 'bg-blue-50 border-l-4 border-blue-500' 
+                                : 'border-l-4 border-transparent'
+                            }`}
+                            onClick={() => toggleCompanySelection(company.id)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-4">
+                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
+                                  selectedCompanies.includes(company.id)
+                                    ? 'bg-blue-500 border-blue-500'
+                                    : 'border-gray-300'
+                                }`}>
+                                  {selectedCompanies.includes(company.id) && (
+                                    <FaCheck className="text-white text-xs" />
+                                  )}
+                                </div>
+                                <div className="flex-1">
+                                  <h3 className="font-semibold text-gray-800">{company.nome}</h3>
+                                  <div className="flex items-center space-x-4 mt-1">
+                                    <span className="flex items-center text-sm text-gray-600">
+                                      <FaIndustry className="mr-1 text-gray-400" />
+                                      {company.sector}
+                                    </span>
+                                    <span className="flex items-center text-sm text-gray-600">
+                                      <FaMapMarkerAlt className="mr-1 text-gray-400" />
+                                      {company.province}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex space-x-2">
+                                {hasActiveSubscription && (
+                                  <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-medium">
+                                    Módulo Ativo
+                                  </span>
+                                )}
+                                {hasActiveTrial && (
+                                  <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">
+                                    Trial Utilizado
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center">
+                      <FaBuilding className="text-gray-300 text-4xl mx-auto mb-3" />
+                      <p className="text-gray-500">Nenhuma empresa encontrada</p>
+                      <p className="text-sm text-gray-400 mt-1">
+                        Tente ajustar os filtros de pesquisa
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {cart.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                Seu carrinho está vazio
+            {/* Modules Card */}
+            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+              <div className="p-6 bg-gradient-to-r from-blue-600 to-blue-700">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <FaBox className="text-white text-2xl mr-3" />
+                    <h2 className="text-xl font-bold text-white">Módulos Disponíveis</h2>
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <FaSearch className="text-blue-200" />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Pesquisar módulo..."
+                      className="pl-10 pr-4 py-2 w-64 bg-blue-500 bg-opacity-20 text-white placeholder-blue-200 border border-blue-400 rounded-lg focus:ring-2 focus:ring-white focus:border-white"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                </div>
               </div>
-            ) : (
-              <>
-                <div className="overflow-x-auto mb-4">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Módulo</th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Preço</th>
-                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Quantidade</th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {cart.map((item) => (
-                        <tr key={item.moduleKey}>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {item.moduleName} <span className="text-xs text-gray-500">({item.validade === 'Anual' ? 'Anual' : 'Mensal'})</span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-right">
-                            {item.price.toLocaleString('pt-PT')} MT
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="flex items-center justify-center">
-                              <button
-                                className="p-1 text-gray-500 hover:text-gray-700"
-                                onClick={() => handleQuantityChange(item.moduleKey, item.quantity - 1)}
-                              >
-                                <FaMinus />
-                              </button>
-                              <input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => handleQuantityChange(item.moduleKey, parseInt(e.target.value) || 1)}
-                                className="w-12 mx-2 text-center border rounded"
-                              />
-                              <button
-                                className="p-1 text-gray-500 hover:text-gray-700"
-                                onClick={() => handleQuantityChange(item.moduleKey, item.quantity + 1)}
-                              >
-                                <FaPlus />
-                              </button>
+
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-96 overflow-y-auto">
+                  {filteredModules.length > 0 ? (
+                    filteredModules.map(module => {
+                      const companiesWithExistingModule = selectedCompanies.filter(companyId => 
+                        companyHasModule(companyId, module.key)
+                      );
+                      const companiesWithExistingTrial = selectedCompanies.filter(companyId => 
+                        companyHasTrial(companyId, module.key)
+                      );
+                      
+                      return (
+                        <div 
+                          key={module.key}
+                          className={`border-2 rounded-xl p-4 transition-all hover:shadow-md border-gray-200 hover:border-blue-300`}
+                        >
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <h3 className="font-bold text-gray-800 text-lg">{module.name}</h3>
+                              <div className="flex items-center space-x-4 mt-2">
+                                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                                  module.validade === 'Anual'
+                                    ? 'bg-purple-100 text-purple-800'
+                                    : 'bg-blue-100 text-blue-800'
+                                }`}>
+                                  <FaCalendarAlt className="mr-1" />
+                                  {module.validade === 'Anual' ? '1 Ano' : '1 Mês'}
+                                </span>
+                                <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
+                                  <FaMoneyBillWave className="inline mr-1" />
+                                  {module.price.toLocaleString('pt-PT')} MT
+                                </span>
+                              </div>
                             </div>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-right">
-                            {(item.price * item.quantity).toLocaleString('pt-PT')} MT
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-right">
+                          </div>
+                          
+                          {companiesWithExistingModule.length > 0 && (
+                            <div className="bg-yellow-100 border border-yellow-200 rounded-lg p-3 mb-3">
+                              <div className="flex items-center">
+                                <FaExclamationTriangle className="text-yellow-600 mr-2" />
+                                <span className="text-yellow-700 text-sm">
+                                  Módulo ativo em {companiesWithExistingModule.length} empresa(s)
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                          {companiesWithExistingTrial.length > 0 && (
+                            <div className="bg-green-100 border border-green-200 rounded-lg p-3 mb-3">
+                              <div className="flex items-center">
+                                <FaExclamationTriangle className="text-green-600 mr-2" />
+                                <span className="text-green-700 text-sm">
+                                  Trial já utilizado em {companiesWithExistingTrial.length} empresa(s)
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2">
                             <button
-                              className="p-1 text-red-500 hover:text-red-700"
-                              onClick={() => handleRemoveFromCart(item.moduleKey)}
+                              className={`w-full py-3 rounded-lg font-medium transition-all flex items-center justify-center ${
+                                selectedCompanies.length === 0 || companiesWithExistingModule.length > 0
+                                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                  : 'bg-blue-500 hover:bg-blue-600 text-white shadow-md hover:shadow-lg transform hover:-translate-y-0.5'
+                              }`}
+                              onClick={() => handleAddToCart(module, 'paid')}
+                              disabled={selectedCompanies.length === 0 || companiesWithExistingModule.length > 0}
                             >
-                              <FaTrash />
+                              <FaCreditCard className="mr-2" />
+                              Adicionar Pago
                             </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex justify-between items-center mb-4 p-3 bg-gray-50 rounded-lg">
-                  <span className="font-semibold">Total:</span>
-                  <span className="font-bold text-lg">
-                    {calculateTotal().toLocaleString('pt-PT')} MT
-                  </span>
-                </div>
-
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Observações:</label>
-                  <textarea
-                    className="w-full border rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    rows={3}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Adicione notas ou observações sobre esta subscrição..."
-                  />
-                </div>
-
-                {error && (
-                  <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg">
-                    {error}
-                  </div>
-                )}
-
-                {success && (
-                  <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-lg">
-                    Subscrições confirmadas com sucesso!
-                  </div>
-                )}
-
-                <button
-                  className={`w-full py-3 px-4 rounded-lg font-medium ${
-                    !selectedCompany || cart.length === 0 || loading 
-                      ? 'bg-gray-300 cursor-not-allowed' 
-                      : 'bg-blue-600 hover:bg-blue-700 text-white'
-                  }`}
-                  onClick={() => setConfirmOpen(true)}
-                  disabled={!selectedCompany || cart.length === 0 || loading}
-                >
-                  {loading ? (
-                    <span className="flex items-center justify-center">
-                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Processando...
-                    </span>
+                            <button
+                              className={`w-full py-3 rounded-lg font-medium transition-all flex items-center justify-center ${
+                                selectedCompanies.length === 0 || companiesWithExistingTrial.length > 0
+                                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                  : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-md hover:shadow-lg transform hover:-translate-y-0.5'
+                              }`}
+                              onClick={() => handleAddToCart(module, 'trial')}
+                              disabled={selectedCompanies.length === 0 || companiesWithExistingTrial.length > 0}
+                            >
+                              <FaGift className="mr-2" />
+                              Adicionar Trial (7 Dias)
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
                   ) : (
-                    'Confirmar Subscrições'
+                    <div className="col-span-2 p-8 text-center">
+                      <FaBox className="text-gray-300 text-4xl mx-auto mb-3" />
+                      <p className="text-gray-500">Nenhum módulo encontrado</p>
+                    </div>
                   )}
-                </button>
-              </>
-            )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Panel - Cart */}
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden h-fit sticky top-6">
+            <div className="p-6 bg-gradient-to-r from-purple-600 to-purple-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <FaShoppingCart className="text-white text-2xl mr-3" />
+                  <h2 className="text-xl font-bold text-white">Carrinho</h2>
+                </div>
+                <span className="bg-purple-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+                  {cart.length} itens
+                </span>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {cart.length === 0 ? (
+                <div className="text-center py-8">
+                  <FaShoppingCart className="text-gray-300 text-4xl mx-auto mb-3" />
+                  <p className="text-gray-500 mb-2">Seu carrinho está vazio</p>
+                  <p className="text-sm text-gray-400">
+                    Selecione empresas e adicione módulos para começar
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-4 mb-6 max-h-96 overflow-y-auto">
+                    {cart.map((item) => (
+                      <div key={`${item.moduleKey}-${item.subscriptionType}`} className={`rounded-xl p-4 border ${
+                        item.subscriptionType === 'trial' 
+                          ? 'bg-green-50 border-green-200' 
+                          : 'bg-gray-50 border-gray-200'
+                      }`}>
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <h4 className="font-semibold text-gray-800">{item.moduleName}</h4>
+                            <div className="flex items-center space-x-2 mt-1">
+                              <span className={`text-sm px-2 py-1 rounded-full ${
+                                item.subscriptionType === 'trial'
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}>
+                                {item.subscriptionType === 'trial' ? 'Trial 7 Dias' : `${item.validade === 'Anual' ? 'Anual' : 'Mensal'}`}
+                              </span>
+                              {item.subscriptionType === 'paid' && (
+                                <span className="text-sm font-medium text-green-600">
+                                  {item.price.toLocaleString('pt-PT')} MT
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveFromCart(item.moduleKey, item.subscriptionType)}
+                            className="text-red-500 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 transition-colors"
+                          >
+                            <FaTrash />
+                          </button>
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-3">
+                            <button
+                              className="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors"
+                              onClick={() => handleQuantityChange(item.moduleKey, item.subscriptionType, item.quantity - 1)}
+                              disabled={item.subscriptionType === 'trial'}
+                            >
+                              <FaMinus className="text-gray-600 text-xs" />
+                            </button>
+                            <span className="font-semibold text-gray-800 w-8 text-center">
+                              {item.quantity}
+                            </span>
+                            <button
+                              className="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition-colors"
+                              onClick={() => handleQuantityChange(item.moduleKey, item.subscriptionType, item.quantity + 1)}
+                              disabled={item.subscriptionType === 'trial'}
+                            >
+                              <FaPlus className="text-gray-600 text-xs" />
+                            </button>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-bold text-gray-800">
+                              {item.subscriptionType === 'paid' 
+                                ? `${(item.price * item.quantity).toLocaleString('pt-PT')} MT`
+                                : 'Grátis'
+                              }
+                            </div>
+                            <div className="text-xs text-gray-500">por empresa</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Summary */}
+                  <div className="rounded-xl p-4 mb-6 border bg-blue-50 border-blue-200">
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Subtotal por empresa:</span>
+                        <span className="font-medium">
+                          {cart.reduce((total, item) => {
+                            if (item.subscriptionType === 'paid') {
+                              return total + (item.price * item.quantity);
+                            }
+                            return total;
+                          }, 0).toLocaleString('pt-PT')} MT
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Número de empresas:</span>
+                        <span className="font-medium">{selectedCompanies.length}</span>
+                      </div>
+                      <div className="border-t border-gray-200 pt-2 mt-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-gray-800">Total Geral:</span>
+                          <span className="text-xl font-bold text-blue-600">
+                            {calculateTotal().toLocaleString('pt-PT')} MT
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Notes */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Observações
+                    </label>
+                    <textarea
+                      className="w-full border border-gray-200 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                      rows={3}
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Adicione observações sobre estas subscrições e trials..."
+                    />
+                  </div>
+
+                  {error && (
+                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+                      <div className="flex items-center">
+                        <FaExclamationTriangle className="text-red-500 mr-2" />
+                        <span className="text-red-700">{error}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {success && (
+                    <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-xl">
+                      <div className="flex items-center">
+                        <FaCheck className="text-green-500 mr-2" />
+                        <span className="text-green-700">
+                          Subscrições e trials confirmados com sucesso para {selectedCompanies.length} empresa(s)!
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    className={`w-full py-4 px-6 rounded-xl font-bold text-lg transition-all ${
+                      selectedCompanies.length === 0 || cart.length === 0 || loading 
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                        : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
+                    }`}
+                    onClick={() => setConfirmOpen(true)}
+                    disabled={selectedCompanies.length === 0 || cart.length === 0 || loading}
+                  >
+                    {loading ? (
+                      <span className="flex items-center justify-center">
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Processando...
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center">
+                        <FaCreditCard className="mr-2" />
+                        Confirmar para {selectedCompanies.length} Empresa(s)
+                      </span>
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Confirmation Modal */}
       {confirmOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full transform transition-all">
             <div className="p-6">
-              <h3 className="text-lg font-bold text-gray-800 mb-4">Confirmar Subscrições</h3>
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-blue-100">
+                  <FaCreditCard className="text-blue-600 text-2xl" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-800 mb-2">
+                  Confirmar Subscrições e Trials
+                </h3>
+                <p className="text-gray-600">
+                  Você está prestes a confirmar subscrições e/ou trials em massa
+                </p>
+              </div>
               
-              <div className="mb-4">
-                <p className="text-gray-700 mb-2">
-                  Você está prestes a confirmar {cart.length} subscrição(ões) para:
-                </p>
-                <p className="font-semibold">
-                  Empresa: {companies.find(c => c.id === selectedCompany)?.nome || 'N/A'}
-                </p>
+              <div className="bg-gray-50 rounded-xl p-4 mb-6">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Empresas:</span>
+                    <div className="font-semibold text-gray-800">{selectedCompanies.length}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Módulos:</span>
+                    <div className="font-semibold text-gray-800">{cart.length}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Trials:</span>
+                    <div className="font-semibold text-gray-800">{cart.filter(item => item.subscriptionType === 'trial').length * selectedCompanies.length}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Subscrições Pagas:</span>
+                    <div className="font-semibold text-gray-800">{cart.filter(item => item.subscriptionType === 'paid').length * selectedCompanies.length}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-gray-500">Valor Total:</span>
+                    <div className="font-semibold text-blue-600">
+                      {calculateTotal().toLocaleString('pt-PT')} MT
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="border-t border-b border-gray-200 py-3 my-3 max-h-48 overflow-y-auto">
-                <ul className="space-y-2">
-                  {cart.map(item => (
-                    <li key={item.moduleKey} className="flex justify-between">
-                      <span>
-                        {item.quantity}x {item.moduleName} <span className="text-sm text-gray-500">({item.validade === 'Anual' ? 'Anual' : 'Mensal'})</span>
-                      </span>
-                      <span className="font-medium">
-                        {(item.price * item.quantity).toLocaleString('pt-PT')} MT
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="flex justify-between items-center mb-4">
-                <span className="font-bold">Total:</span>
-                <span className="font-bold text-lg">
-                  {calculateTotal().toLocaleString('pt-PT')} MT
-                </span>
-              </div>
-
-              <p className="text-sm text-gray-500 mb-4">
-                Esta ação não pode ser desfeita. Deseja continuar?
+              <p className="text-sm text-gray-500 text-center mb-6">
+                Esta ação criará {selectedCompanies.length * cart.length} ativações individuais e não pode ser desfeita.
               </p>
 
-              <div className="flex justify-end space-x-3">
+              <div className="flex space-x-3">
                 <button
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  className="flex-1 px-4 py-3 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors font-medium flex items-center justify-center"
                   onClick={() => setConfirmOpen(false)}
                   disabled={loading}
                 >
-                  <FaTimes className="inline mr-2" />
+                  <FaTimes className="mr-2" />
                   Cancelar
                 </button>
                 <button
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300"
+                  className={`flex-1 px-4 py-3 text-white rounded-xl hover:shadow-lg transition-all font-medium flex items-center justify-center bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800`}
                   onClick={handleConfirmSubscription}
                   disabled={loading}
                 >
                   {loading ? (
-                    <span className="flex items-center">
-                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Confirmando...
-                    </span>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
                   ) : (
-                    <>
-                      <FaCheck className="inline mr-2" />
-                      Confirmar
-                    </>
+                    <FaCheck className="mr-2" />
                   )}
+                  {loading ? 'Processando...' : 'Confirmar'}
                 </button>
               </div>
             </div>
