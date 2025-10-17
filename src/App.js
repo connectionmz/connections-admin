@@ -35,6 +35,8 @@ import Feedback from './components/Feedback';
 import Singulares from './components/Singulares';
 import Versingular from './components/VerSingular';
 import Concursos from './components/roles/Concursos';
+import ConcursosUgea from './components/ConursosUgea';
+import AdminEventos from './components/Eventos';
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
@@ -73,6 +75,8 @@ const Sidebar = ({ user, handleLogout }) => {
     { to: "/usuarios", label: "Usuários", roles: ["admin"] },
     { to: "/cotacoes", label: "Cotações", roles: ["admin", "gestor de cotações"] },
     { to: "/concursos", label: "concursos", roles: ["admin", "gestor de cotações"] },
+    { to: "/concursosUgea", label: "concursos Ugea", roles: ["admin", "gestor de cotações"] },
+    { to: "/eventos", label: "Eventos", roles: ["admin", "gestor de cotações"] },
     { to: "/sectores", label: "Sectores", roles: ["admin", "gestor de cotações"] },
     { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
     { to: "/modulos", label: "Modulos", roles: ["admin"] },
@@ -192,6 +196,13 @@ function App() {
                   <Singulares />
                 </PrivateRoute>
               } />
+
+            <Route path="/concursosUgea" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <ConcursosUgea />
+                </PrivateRoute>
+              } />
+              
               <Route path="/versingulares/:id" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
                   <Versingular />
@@ -210,6 +221,11 @@ function App() {
               <Route path="/pagar" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
                   <Pagar />
+                </PrivateRoute>
+              } />
+              <Route path="/eventos" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <AdminEventos />
                 </PrivateRoute>
               } />
                 <Route path="/pagarModulo" element={
