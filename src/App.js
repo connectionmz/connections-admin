@@ -37,6 +37,7 @@ import Versingular from './components/VerSingular';
 import Concursos from './components/roles/Concursos';
 import ConcursosUgea from './components/ConursosUgea';
 import AdminEventos from './components/Eventos';
+import TarifasManager from './components/TarifasManager';
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
@@ -65,6 +66,7 @@ const Sidebar = ({ user, handleLogout }) => {
   const menuItems = [
     { to: "/", label: "Dashboard", roles: ["admin", "contabilista"] },
     { to: "/empresas", label: "Empresas", roles: ["admin", "gestor de empresas"] },
+    { to: "/tarifas", label: "Tarifas(Frete)", roles: ["admin", "gestor de empresas"] },
     { to: "/singulares", label: "Singulares", roles: ["admin", "gestor de empresas"] },
     { to: "/CadastroEmpresa", label: "Cadastrar Empresa", roles: ["admin", "gestor de empresas"] },
     { to: "/validar", label: "Validações", roles: ["admin", "gestor de empresas"] },
@@ -254,6 +256,12 @@ function App() {
                   <CadastroEmpresa />
                 </PrivateRoute>
               } />
+                  <Route path="/tarifas" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <TarifasManager />
+                </PrivateRoute>
+              } />
+              
               <Route path="/blog" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
                   <Publicidade />
