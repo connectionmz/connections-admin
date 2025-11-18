@@ -175,21 +175,27 @@ const SubscriptionConfirmation = ({ user }) => {
     setSelectedCompanies([]);
   };
 
-  // Filter companies based on all criteria
+  // Filter companies based on all criteria - FIXED VERSION
   const filteredCompanies = companies.filter(company => {
-    const matchesSearch = company.nome.toLowerCase().includes(companySearch.toLowerCase()) ||
-                         company.sector.toLowerCase().includes(companySearch.toLowerCase());
+    // Safe string conversion with null checking
+    const companyName = company.nome || '';
+    const companySector = company.sector || '';
+    const companyProvince = company.province || '';
     
-    const matchesProvince = !selectedProvince || company.province === selectedProvince;
-    const matchesSector = !selectedSector || company.sector === selectedSector;
+    const matchesSearch = companyName.toLowerCase().includes(companySearch.toLowerCase()) ||
+                         companySector.toLowerCase().includes(companySearch.toLowerCase());
+    
+    const matchesProvince = !selectedProvince || companyProvince === selectedProvince;
+    const matchesSector = !selectedSector || companySector === selectedSector;
     
     return matchesSearch && matchesProvince && matchesSector;
   });
 
   // Filter modules
-  const filteredModules = modules.filter(module => 
-    module.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredModules = modules.filter(module => {
+    const moduleName = module.name || '';
+    return moduleName.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   // Clear all filters
   const clearFilters = () => {
@@ -198,11 +204,19 @@ const SubscriptionConfirmation = ({ user }) => {
     setCompanySearch('');
   };
 
-  // Get unique provinces from companies
-  const availableProvinces = [...new Set(companies.map(company => company.province).filter(Boolean))];
+  // Get unique provinces from companies with null checking
+  const availableProvinces = [...new Set(
+    companies
+      .map(company => company.province)
+      .filter(province => province && province.trim() !== '')
+  )];
 
-  // Get unique sectors from companies
-  const availableSectors = [...new Set(companies.map(company => company.sector).filter(Boolean))];
+  // Get unique sectors from companies with null checking
+  const availableSectors = [...new Set(
+    companies
+      .map(company => company.sector)
+      .filter(sector => sector && sector.trim() !== '')
+  )];
 
   const handleAddToCart = (module, subscriptionType) => {
     if (selectedCompanies.length === 0) {
@@ -216,9 +230,10 @@ const SubscriptionConfirmation = ({ user }) => {
     );
 
     if (companiesWithExisting.length > 0) {
-      const companyNames = companiesWithExisting.map(companyId => 
-        companies.find(c => c.id === companyId)?.nome
-      ).join(', ');
+      const companyNames = companiesWithExisting.map(companyId => {
+        const company = companies.find(c => c.id === companyId);
+        return company?.nome || `Empresa ${companyId}`;
+      }).join(', ');
       
       setError(`Algumas empresas já possuem este módulo ${subscriptionType === 'trial' ? 'em trial' : 'ativo'}: ${companyNames}`);
       return;
@@ -241,9 +256,9 @@ const SubscriptionConfirmation = ({ user }) => {
     } else {
       setCart([...cart, {
         moduleKey: module.key,
-        moduleName: module.name,
-        price: subscriptionType === 'paid' ? module.price : 0,
-        validade: module.validade,
+        moduleName: module.name || 'Módulo sem nome',
+        price: subscriptionType === 'paid' ? (module.price || 0) : 0,
+        validade: module.validade || 'Mensal',
         quantity: 1,
         subscriptionType: subscriptionType,
         forAllSelected: true
@@ -272,7 +287,7 @@ const SubscriptionConfirmation = ({ user }) => {
   const calculateTotal = () => {
     const totalPerCompany = cart.reduce((total, item) => {
       if (item.subscriptionType === 'paid') {
-        return total + (item.price * item.quantity);
+        return total + ((item.price || 0) * item.quantity);
       }
       return total;
     }, 0);
@@ -336,13 +351,15 @@ const SubscriptionConfirmation = ({ user }) => {
       selectedCompanies.forEach(companyId => {
         cart.forEach(item => {
           if (item.subscriptionType === 'paid' && companyHasModule(companyId, item.moduleKey)) {
-            const companyName = companies.find(c => c.id === companyId)?.nome;
+            const company = companies.find(c => c.id === companyId);
+            const companyName = company?.nome || `Empresa ${companyId}`;
             if (!companiesWithExistingSubscriptions.includes(companyName)) {
               companiesWithExistingSubscriptions.push(companyName);
             }
           }
           if (item.subscriptionType === 'trial' && companyHasTrial(companyId, item.moduleKey)) {
-            const companyName = companies.find(c => c.id === companyId)?.nome;
+            const company = companies.find(c => c.id === companyId);
+            const companyName = company?.nome || `Empresa ${companyId}`;
             if (!companiesWithExistingSubscriptions.includes(companyName)) {
               companiesWithExistingSubscriptions.push(companyName);
             }
@@ -369,17 +386,22 @@ const SubscriptionConfirmation = ({ user }) => {
           // Only create payment record for paid subscriptions
           let newPaymentRef = null;
           if (item.subscriptionType === 'paid') {
+            const companyName = company.nome || `Empresa ${company.id}`;
+            const companyEmail = company.email || '';
+            const companyPhone = company.phone || '';
+            const companyDisplayName = company.displayName || '';
+
             const paymentData = {
               userId: company.id,
-              userName: company.displayName || '',
-              userEmail: company.email || '',
-              nome: company.nome,
-              telefone: company.phone || '',
+              userName: companyDisplayName,
+              userEmail: companyEmail,
+              nome: companyName,
+              telefone: companyPhone,
               moduleKey: item.moduleKey,
               moduleName: item.moduleName,
               moduleType: 'standard',
-              amount: item.price * item.quantity,
-              reference: company.nome,
+              amount: (item.price || 0) * item.quantity,
+              reference: companyName,
               status: 'pago',
               timestamp: now,
               updatedAt: now,
@@ -406,9 +428,10 @@ const SubscriptionConfirmation = ({ user }) => {
 
           // Create trial record if it's a trial
           if (item.subscriptionType === 'trial') {
+            const companyName = company.nome || `Empresa ${company.id}`;
             const trialData = {
               companyId: company.id,
-              companyName: company.nome,
+              companyName: companyName,
               moduleKey: item.moduleKey,
               moduleName: item.moduleName,
               startDate: now,
@@ -646,15 +669,15 @@ const SubscriptionConfirmation = ({ user }) => {
                                   )}
                                 </div>
                                 <div className="flex-1">
-                                  <h3 className="font-semibold text-gray-800">{company.nome}</h3>
+                                  <h3 className="font-semibold text-gray-800">{company.nome || 'Nome não disponível'}</h3>
                                   <div className="flex items-center space-x-4 mt-1">
                                     <span className="flex items-center text-sm text-gray-600">
                                       <FaIndustry className="mr-1 text-gray-400" />
-                                      {company.sector}
+                                      {company.sector || 'Setor não definido'}
                                     </span>
                                     <span className="flex items-center text-sm text-gray-600">
                                       <FaMapMarkerAlt className="mr-1 text-gray-400" />
-                                      {company.province}
+                                      {company.province || 'Província não definida'}
                                     </span>
                                   </div>
                                 </div>
@@ -730,7 +753,7 @@ const SubscriptionConfirmation = ({ user }) => {
                         >
                           <div className="flex justify-between items-start mb-3">
                             <div>
-                              <h3 className="font-bold text-gray-800 text-lg">{module.name}</h3>
+                              <h3 className="font-bold text-gray-800 text-lg">{module.name || 'Módulo sem nome'}</h3>
                               <div className="flex items-center space-x-4 mt-2">
                                 <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
                                   module.validade === 'Anual'
@@ -742,7 +765,7 @@ const SubscriptionConfirmation = ({ user }) => {
                                 </span>
                                 <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
                                   <FaMoneyBillWave className="inline mr-1" />
-                                  {module.price.toLocaleString('pt-PT')} MT
+                                  {(module.price || 0).toLocaleString('pt-PT')} MT
                                 </span>
                               </div>
                             </div>
@@ -854,7 +877,7 @@ const SubscriptionConfirmation = ({ user }) => {
                               </span>
                               {item.subscriptionType === 'paid' && (
                                 <span className="text-sm font-medium text-green-600">
-                                  {item.price.toLocaleString('pt-PT')} MT
+                                  {(item.price || 0).toLocaleString('pt-PT')} MT
                                 </span>
                               )}
                             </div>
@@ -890,7 +913,7 @@ const SubscriptionConfirmation = ({ user }) => {
                           <div className="text-right">
                             <div className="font-bold text-gray-800">
                               {item.subscriptionType === 'paid' 
-                                ? `${(item.price * item.quantity).toLocaleString('pt-PT')} MT`
+                                ? `${((item.price || 0) * item.quantity).toLocaleString('pt-PT')} MT`
                                 : 'Grátis'
                               }
                             </div>
@@ -909,7 +932,7 @@ const SubscriptionConfirmation = ({ user }) => {
                         <span className="font-medium">
                           {cart.reduce((total, item) => {
                             if (item.subscriptionType === 'paid') {
-                              return total + (item.price * item.quantity);
+                              return total + ((item.price || 0) * item.quantity);
                             }
                             return total;
                           }, 0).toLocaleString('pt-PT')} MT
