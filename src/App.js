@@ -38,6 +38,7 @@ import Concursos from './components/roles/Concursos';
 import ConcursosUgea from './components/ConursosUgea';
 import AdminEventos from './components/Eventos';
 import TarifasManager from './components/TarifasManager';
+import Lojas from './components/Lojas';
 
 const LoadingScreen = () => (
   <div className="flex items-center justify-center h-screen bg-gray-200">
@@ -228,6 +229,11 @@ function App() {
               <Route path="/eventos" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
                   <AdminEventos />
+                </PrivateRoute>
+              } />
+ <Route path="/lojas" element={
+                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
+                  <Lojas />
                 </PrivateRoute>
               } />
                 <Route path="/pagarModulo" element={
