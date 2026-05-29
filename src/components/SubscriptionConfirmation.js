@@ -320,6 +320,11 @@ const SubscriptionConfirmation = ({ user }) => {
     await update(subscriptionRef, subscriptionData);
   };
 
+// No topo do arquivo, adicione a importação
+import sendEmail from './sendEmail'; // Ajuste o caminho conforme sua estrutura
+
+// Dentro do handleConfirmSubscription, após criar as subscrições, adicione:
+
 const handleConfirmSubscription = async () => {
     if (selectedCompanies.length === 0) {
       setError('Por favor, selecione pelo menos uma empresa');
@@ -462,17 +467,17 @@ const handleConfirmSubscription = async () => {
         });
       }
 
-      // Send emails to each company
+      // ENVIAR EMAILS PARA CADA EMPRESA
       for (const subscriptionInfo of createdSubscriptions) {
         const company = subscriptionInfo.company;
         const companyEmail = company.email;
         
         if (!companyEmail) {
-          console.warn(`Empresa ${company.nome} não tem email configurado, não foi possível enviar notificação`);
+          console.warn(`Empresa ${company.nome} não tem email configurado`);
           continue;
         }
 
-        // Prepare email content
+        // Preparar conteúdo do email
         const emailSubject = `Confirmação de Subscrição - ${company.nome}`;
         
         let emailText = `Prezado(a) ${company.nome},\n\n`;
@@ -498,7 +503,7 @@ const handleConfirmSubscription = async () => {
         emailText += `Para mais informações, por favor contacte o nosso suporte.\n\n`;
         emailText += `Atenciosamente,\nEquipa de Suporte`;
 
-        // HTML version for better formatting
+        // HTML version
         const emailHtml = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #4F46E5;">Confirmação de Subscrição</h2>
@@ -527,28 +532,18 @@ const handleConfirmSubscription = async () => {
           </div>
         `;
 
-        const emailData = {
+        // Enviar email
+        const emailSent = await sendEmail({
           to: companyEmail,
           subject: emailSubject,
           text: emailText,
           html: emailHtml
-        };
+        });
 
-        // Call your email sending API endpoint
-        try {
-          const emailResponse = await fetch('/api/send-email', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(emailData)
-          });
-
-          if (!emailResponse.ok) {
-            console.error(`Falha ao enviar email para ${companyEmail}`);
-          }
-        } catch (emailError) {
-          console.error(`Erro ao enviar email para ${companyEmail}:`, emailError);
+        if (emailSent) {
+          console.log(`✅ Email enviado para ${companyEmail}`);
+        } else {
+          console.warn(`⚠️ Falha no email para ${companyEmail}`);
         }
       }
 
@@ -561,6 +556,7 @@ const handleConfirmSubscription = async () => {
         setNotes('');
         setSuccess(false);
       }, 3000);
+      
     } catch (err) {
       console.error('Erro ao confirmar subscrições:', err);
       setError(err.message || 'Ocorreu um erro ao confirmar as subscrições');
