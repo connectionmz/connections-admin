@@ -37,7 +37,6 @@ import Versingular from './components/VerSingular';
 import Concursos from './components/roles/Concursos';
 import ConcursosUgea from './components/ConursosUgea';
 import AdminEventos from './components/Eventos';
-import TarifasManager from './components/TarifasManager';
 import Lojas from './components/Lojas';
 
 const LoadingScreen = () => (
@@ -67,15 +66,14 @@ const Sidebar = ({ user, handleLogout }) => {
   const menuItems = [
     { to: "/", label: "Dashboard", roles: ["admin", "contabilista"] },
     { to: "/empresas", label: "Empresas", roles: ["admin", "gestor de empresas"] },
-    { to: "/tarifas", label: "Tarifas(Frete)", roles: ["admin", "gestor de empresas"] },
     { to: "/singulares", label: "Singulares", roles: ["admin", "gestor de empresas"] },
     { to: "/CadastroEmpresa", label: "Cadastrar Empresa", roles: ["admin", "gestor de empresas"] },
     { to: "/validar", label: "Validações", roles: ["admin", "gestor de empresas"] },
-    { to: "/empresaRepositorio", label: "Empresas Repositorio", roles: ["admin", "gestor de empresas"] },
     { to: "/blog", label: "Blog", roles: ["admin", "gestor de cotações"] },
     { to: "/feedback", label: "Feebacks", roles: ["admin", "gestor de cotações"] },
     { to: "/anuncios", label: "Anúncios", roles: ["admin", "contabilista"] },
     { to: "/usuarios", label: "Usuários", roles: ["admin"] },
+    { to: "/lojas", label: "Lojas", roles: ["admin"] },
     { to: "/cotacoes", label: "Cotações", roles: ["admin", "gestor de cotações"] },
     { to: "/concursos", label: "concursos", roles: ["admin", "gestor de cotações"] },
     { to: "/concursosUgea", label: "concursos Ugea", roles: ["admin", "gestor de cotações"] },
@@ -89,7 +87,6 @@ const Sidebar = ({ user, handleLogout }) => {
     { to: "/pagar", label: "Pagamentos", roles: ["admin"] },
     { to: "/pagarModulo", label: "Pagar", roles: ["admin"] },
     { to: "/publicacoes", label: "Publicacoes", roles: ["admin"] },
-    { to: "/parceiros", label: "Parceiros/Investidores", roles: ["admin"] },
     { to: "/publico", label: "Setor Público", roles: ["admin"] },
   ];
 
@@ -246,11 +243,6 @@ function App() {
                   <Validacoes />
                 </PrivateRoute>
               } />
-                 <Route path="/empresaRepositorio" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <EmpresasGmail />
-                </PrivateRoute>
-              } />
               
               <Route path="/publico" element={
                 <PrivateRoute user={user} allowedRoles={['admin']}>
@@ -262,11 +254,7 @@ function App() {
                   <CadastroEmpresa />
                 </PrivateRoute>
               } />
-                  <Route path="/tarifas" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <TarifasManager />
-                </PrivateRoute>
-              } />
+               
               
               <Route path="/blog" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
@@ -328,11 +316,7 @@ function App() {
                   <Publicacoes />
                 </PrivateRoute>
               } />
-              <Route path="/parceiros" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <Parceiros />
-                </PrivateRoute>
-              } />
+            
               <Route path="/empresas/:id" element={
                 <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
                   <EmpresaDetalhes />

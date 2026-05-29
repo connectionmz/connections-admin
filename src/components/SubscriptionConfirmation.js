@@ -140,12 +140,10 @@ const SubscriptionConfirmation = ({ user }) => {
     setError('');
   };
 
-  // Select all filtered companies
   const selectAllFilteredCompanies = () => {
     setSelectedCompanies(filteredCompanies.map(company => company.id));
   };
 
-  // Select companies by filter
   const selectCompaniesByFilter = (filterType, value) => {
     let companiesToSelect = [];
     
@@ -170,14 +168,11 @@ const SubscriptionConfirmation = ({ user }) => {
     setSelectedCompanies(companiesToSelect);
   };
 
-  // Deselect all companies
   const deselectAllCompanies = () => {
     setSelectedCompanies([]);
   };
 
-  // Filter companies based on all criteria - FIXED VERSION
   const filteredCompanies = companies.filter(company => {
-    // Safe string conversion with null checking
     const companyName = company.nome || '';
     const companySector = company.sector || '';
     const companyProvince = company.province || '';
@@ -197,21 +192,18 @@ const SubscriptionConfirmation = ({ user }) => {
     return moduleName.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
-  // Clear all filters
   const clearFilters = () => {
     setSelectedProvince('');
     setSelectedSector('');
     setCompanySearch('');
   };
 
-  // Get unique provinces from companies with null checking
   const availableProvinces = [...new Set(
     companies
       .map(company => company.province)
       .filter(province => province && province.trim() !== '')
   )];
 
-  // Get unique sectors from companies with null checking
   const availableSectors = [...new Set(
     companies
       .map(company => company.sector)
@@ -328,7 +320,7 @@ const SubscriptionConfirmation = ({ user }) => {
     await update(subscriptionRef, subscriptionData);
   };
 
-  const handleConfirmSubscription = async () => {
+const handleConfirmSubscription = async () => {
     if (selectedCompanies.length === 0) {
       setError('Por favor, selecione pelo menos uma empresa');
       return;
@@ -371,6 +363,9 @@ const SubscriptionConfirmation = ({ user }) => {
         throw new Error(`Algumas empresas já possuem subscrições ativas: ${companiesWithExistingSubscriptions.join(', ')}`);
       }
 
+      // Array to store created subscriptions for email
+      const createdSubscriptions = [];
+
       // Create payments and subscriptions for each company and each item
       for (const companyId of selectedCompanies) {
         const company = companies.find(c => c.id === companyId);
@@ -379,6 +374,8 @@ const SubscriptionConfirmation = ({ user }) => {
           console.warn(`Empresa com ID ${companyId} não encontrada, continuando...`);
           continue;
         }
+
+        const companySubscriptions = [];
 
         for (const item of cart) {
           const subscriptionEnd = calculateSubscriptionEnd(item.validade, item.subscriptionType, item.quantity);
@@ -445,11 +442,119 @@ const SubscriptionConfirmation = ({ user }) => {
             const newTrialRef = push(trialsRef);
             await update(newTrialRef, trialData);
           }
+
+          // Store subscription info for email
+          companySubscriptions.push({
+            moduleName: item.moduleName,
+            moduleKey: item.moduleKey,
+            subscriptionType: item.subscriptionType === 'paid' ? 'Paga' : 'Trial',
+            startDate: new Date(now).toLocaleDateString('pt-PT'),
+            endDate: new Date(subscriptionEnd).toLocaleDateString('pt-PT'),
+            quantity: item.quantity,
+            validity: item.validade,
+            price: item.price
+          });
+        }
+
+        createdSubscriptions.push({
+          company: company,
+          subscriptions: companySubscriptions
+        });
+      }
+
+      // Send emails to each company
+      for (const subscriptionInfo of createdSubscriptions) {
+        const company = subscriptionInfo.company;
+        const companyEmail = company.email;
+        
+        if (!companyEmail) {
+          console.warn(`Empresa ${company.nome} não tem email configurado, não foi possível enviar notificação`);
+          continue;
+        }
+
+        // Prepare email content
+        const emailSubject = `Confirmação de Subscrição - ${company.nome}`;
+        
+        let emailText = `Prezado(a) ${company.nome},\n\n`;
+        emailText += `Confirmamos a ativação da(s) seguinte(s) subscrição(ões):\n\n`;
+        
+        for (const sub of subscriptionInfo.subscriptions) {
+          emailText += `📦 Módulo: ${sub.moduleName}\n`;
+          emailText += `   Tipo: ${sub.subscriptionType}\n`;
+          emailText += `   Data de Início: ${sub.startDate}\n`;
+          emailText += `   Data de Fim: ${sub.endDate}\n`;
+          if (sub.subscriptionType === 'Paga') {
+            emailText += `   Período: ${sub.validity}\n`;
+            emailText += `   Quantidade: ${sub.quantity}\n`;
+            emailText += `   Valor: €${(sub.price * sub.quantity).toFixed(2)}\n`;
+          }
+          emailText += `\n`;
+        }
+        
+        if (notes) {
+          emailText += `Observações: ${notes}\n\n`;
+        }
+        
+        emailText += `Para mais informações, por favor contacte o nosso suporte.\n\n`;
+        emailText += `Atenciosamente,\nEquipa de Suporte`;
+
+        // HTML version for better formatting
+        const emailHtml = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #4F46E5;">Confirmação de Subscrição</h2>
+            <p>Prezado(a) <strong>${company.nome}</strong>,</p>
+            <p>Confirmamos a ativação da(s) seguinte(s) subscrição(ões):</p>
+            
+            ${subscriptionInfo.subscriptions.map(sub => `
+              <div style="background-color: #f9fafb; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #4F46E5;">
+                <h3 style="margin: 0 0 10px 0; color: #1f2937;">📦 ${sub.moduleName}</h3>
+                <p style="margin: 5px 0;"><strong>Tipo:</strong> ${sub.subscriptionType}</p>
+                <p style="margin: 5px 0;"><strong>Data de Início:</strong> ${sub.startDate}</p>
+                <p style="margin: 5px 0;"><strong>Data de Fim:</strong> ${sub.endDate}</p>
+                ${sub.subscriptionType === 'Paga' ? `
+                  <p style="margin: 5px 0;"><strong>Período:</strong> ${sub.validity}</p>
+                  <p style="margin: 5px 0;"><strong>Quantidade:</strong> ${sub.quantity}</p>
+                  <p style="margin: 5px 0;"><strong>Valor Total:</strong> €${(sub.price * sub.quantity).toFixed(2)}</p>
+                ` : ''}
+              </div>
+            `).join('')}
+            
+            ${notes ? `<p><strong>Observações:</strong> ${notes}</p>` : ''}
+            
+            <p>Para mais informações, por favor contacte o nosso suporte.</p>
+            <br>
+            <p>Atenciosamente,<br><strong>Equipa de Suporte</strong></p>
+          </div>
+        `;
+
+        const emailData = {
+          to: companyEmail,
+          subject: emailSubject,
+          text: emailText,
+          html: emailHtml
+        };
+
+        // Call your email sending API endpoint
+        try {
+          const emailResponse = await fetch('/api/send-email', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(emailData)
+          });
+
+          if (!emailResponse.ok) {
+            console.error(`Falha ao enviar email para ${companyEmail}`);
+          }
+        } catch (emailError) {
+          console.error(`Erro ao enviar email para ${companyEmail}:`, emailError);
         }
       }
 
       setSuccess(true);
       setConfirmOpen(false);
+      
       setTimeout(() => {
         setCart([]);
         setSelectedCompanies([]);
