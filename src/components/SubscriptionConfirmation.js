@@ -487,7 +487,7 @@ const handleConfirmSubscription = async () => {
           if (sub.subscriptionType === 'Paga') {
             emailText += `   Período: ${sub.validity}\n`;
             emailText += `   Quantidade: ${sub.quantity}\n`;
-            emailText += `   Valor: €${(sub.price * sub.quantity).toFixed(2)}\n`;
+            emailText += `   Valor: ${(sub.price * sub.quantity).toFixed(2)} MT\n`;
           }
           emailText += `\n`;
         }
@@ -515,7 +515,7 @@ const handleConfirmSubscription = async () => {
                 ${sub.subscriptionType === 'Paga' ? `
                   <p style="margin: 5px 0;"><strong>Período:</strong> ${sub.validity}</p>
                   <p style="margin: 5px 0;"><strong>Quantidade:</strong> ${sub.quantity}</p>
-                  <p style="margin: 5px 0;"><strong>Valor Total:</strong> €${(sub.price * sub.quantity).toFixed(2)}</p>
+                  <p style="margin: 5px 0;"><strong>Valor Total:</strong> ${(sub.price * sub.quantity).toFixed(2)} MT </p>
                 ` : ''}
               </div>
             `).join('')}
@@ -912,7 +912,7 @@ const handleConfirmSubscription = async () => {
                               onClick={() => handleAddToCart(module, 'trial')}
                               disabled={selectedCompanies.length === 0 || companiesWithExistingTrial.length > 0}
                             >
-                              <FaGift className="mr-2" />
+                              <FaGift className="mr-2"u />
                               Adicionar Trial (7 Dias)
                             </button>
                           </div>
