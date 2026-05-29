@@ -320,11 +320,6 @@ const SubscriptionConfirmation = ({ user }) => {
     await update(subscriptionRef, subscriptionData);
   };
 
-// No topo do arquivo, adicione a importação
-import sendEmail from './sendEmail'; // Ajuste o caminho conforme sua estrutura
-
-// Dentro do handleConfirmSubscription, após criar as subscrições, adicione:
-
 const handleConfirmSubscription = async () => {
     if (selectedCompanies.length === 0) {
       setError('Por favor, selecione pelo menos uma empresa');
