@@ -28,6 +28,7 @@ import {
   FaCrown,
   FaStar
 } from 'react-icons/fa';
+import sendEmail from './utils/sendMail';
 
 const SubscriptionConfirmation = ({ user }) => {
   const [companies, setCompanies] = useState([]);
@@ -526,6 +527,7 @@ const handleConfirmSubscription = async () => {
             <p>Atenciosamente,<br><strong>Equipa de Suporte</strong></p>
           </div>
         `;
+
 
         // Enviar email
         const emailSent = await sendEmail({
