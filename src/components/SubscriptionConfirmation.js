@@ -474,10 +474,10 @@ const handleConfirmSubscription = async () => {
         }
 
         // Preparar conteúdo do email
-        const emailSubject = `Confirmação de Subscrição - ${company.nome}`;
+        const emailSubject = `Confirmação de Subscrição grátis - ${company.nome}`;
         
         let emailText = `Prezado(a) ${company.nome},\n\n`;
-        emailText += `Confirmamos a ativação da(s) seguinte(s) subscrição(ões):\n\n`;
+        emailText += `Temos o prazer de informar que a Connection Mozambique ativou gratuitamente o(s) seguinte(s) módulo(s):\n\n`;
         
         for (const sub of subscriptionInfo.subscriptions) {
           emailText += `📦 Módulo: ${sub.moduleName}\n`;
@@ -497,14 +497,18 @@ const handleConfirmSubscription = async () => {
         }
         
         emailText += `Para mais informações, por favor contacte o nosso suporte.\n\n`;
-        emailText += `Atenciosamente,\nEquipa de Suporte`;
+        emailText += `Conectando Empresas e Oportunidades
+        Conectando Empresas e Oportunidades
+        📞 +258 840237100 | +258 876773180
+        📧 suporte@connectionmozambique.com
+        🌐 https://connectionmozambique.com`;
 
         // HTML version
         const emailHtml = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #4F46E5;">Confirmação de Subscrição</h2>
+            <h2 style="color: #4F46E5;">Confirmação de Subscrição Grátis</h2>
             <p>Prezado(a) <strong>${company.nome}</strong>,</p>
-            <p>Confirmamos a ativação da(s) seguinte(s) subscrição(ões):</p>
+            <p>Temos o prazer de informar que a Connection Mozambique ativou gratuitamente o(s) seguinte(s) módulo(s):</p>
             
             ${subscriptionInfo.subscriptions.map(sub => `
               <div style="background-color: #f9fafb; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #4F46E5;">
@@ -522,9 +526,28 @@ const handleConfirmSubscription = async () => {
             
             ${notes ? `<p><strong>Observações:</strong> ${notes}</p>` : ''}
             
-            <p>Para mais informações, por favor contacte o nosso suporte.</p>
-            <br>
-            <p>Atenciosamente,<br><strong>Equipa de Suporte</strong></p>
+           <div style="
+  background:#111827;
+  color:#ffffff;
+  text-align:center;
+  padding:20px;
+">
+            <h3 style="margin:0;">Connection Mozambique</h3>
+            <p style="margin:8px 0;">
+              Conectando Empresas e Oportunidades
+            </p>
+            <p style="margin:5px 0;">
+              📞 +258 840237100 | +258 876773180
+            </p>
+            <p style="margin:5px 0;">
+              📧 suporte@connectionmozambique.com
+            </p>
+            <p style="margin:5px 0;">
+              <a href="https://connectionmozambique.com" style="color:#ffffff;">
+                Connectionmozambique.com
+              </a>
+            </p>
+          </div>
           </div>
         `;
 
