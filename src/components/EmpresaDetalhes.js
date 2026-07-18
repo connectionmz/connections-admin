@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ref, get, update, remove } from 'firebase/database'; 
 import { db } from '../fb'; 
 import jsPDF from 'jspdf';
-import { Alert, Snackbar, Chip, Avatar, Divider, Typography, Button } from '@mui/material';
+import { Alert, Snackbar, Chip, Avatar, Divider, Typography, Button, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
 import { 
   Business, 
   Email, 
@@ -21,12 +21,13 @@ import {
   Public,
   Category,
   CorporateFare,
-  Engineering
+  Engineering,
+  Delete,
+  Edit,
+  Add,
+  Refresh
 } from '@mui/icons-material';
 import ModulosComponent from './ModulosComponent';
-
-
-const navigate = useNavigate
 
 // Componentes de UI reutilizáveis
 const SectionHeader = ({ title, icon }) => (
@@ -81,6 +82,7 @@ const StatusBadge = ({ status }) => {
 
 const EmpresaDetalhes = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [empresa, setEmpresa] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('inicio');
@@ -97,6 +99,18 @@ const EmpresaDetalhes = () => {
   const [accessAction, setAccessAction] = useState("");
   const [expandedModules, setExpandedModules] = useState({});
   const [visits, setVisits] = useState([]);
+  
+  // Estados para modais
+  const [deleteModuleDialog, setDeleteModuleDialog] = useState({
+    open: false,
+    moduleKey: '',
+    moduleName: ''
+  });
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    message: '',
+    onConfirm: null
+  });
 
   // Buscar dados da empresa
   useEffect(() => {
@@ -231,26 +245,120 @@ const EmpresaDetalhes = () => {
     }));
   };
 
-  const handleDeleteCompany = async () => {
-  if (window.confirm('Tem certeza que deseja eliminar permanentemente esta empresa? Esta ação não pode ser desfeita.')) {
+  // Função para remover um módulo
+  const handleRemoveModule = async (moduleKey, moduleName) => {
     try {
-      await remove(ref(db, `company/${id}`));
+      // Remove o módulo do objeto activeModules
+      const updatedModules = { ...userModules };
+      delete updatedModules[moduleKey];
+      
+      // Atualiza no Firebase
+      await update(ref(db, `company/${id}`), {
+        activeModules: updatedModules
+      });
+      
+      // Atualiza o estado local
+      setUserModules(updatedModules);
+      
       setSnackbar({
         open: true,
-        message: 'Empresa eliminada com sucesso',
+        message: `Módulo "${moduleName}" removido com sucesso!`,
         severity: 'success'
       });
-     navigate('/')
+      
+      // Fecha o diálogo
+      setDeleteModuleDialog({ open: false, moduleKey: '', moduleName: '' });
+      
     } catch (error) {
-      console.error('Erro ao eliminar empresa:', error);
+      console.error('Erro ao remover módulo:', error);
       setSnackbar({
         open: true,
-        severity: 'error',
-        message: 'Erro ao eliminar empresa'
+        message: 'Erro ao remover módulo',
+        severity: 'error'
       });
     }
-  }
-};
+  };
+
+  // Função para remover todos os módulos
+  const handleRemoveAllModules = async () => {
+    try {
+      await update(ref(db, `company/${id}`), {
+        activeModules: {}
+      });
+      
+      setUserModules({});
+      
+      setSnackbar({
+        open: true,
+        message: 'Todos os módulos foram removidos com sucesso!',
+        severity: 'success'
+      });
+      
+      setConfirmDialog({ open: false, message: '', onConfirm: null });
+      
+    } catch (error) {
+      console.error('Erro ao remover módulos:', error);
+      setSnackbar({
+        open: true,
+        message: 'Erro ao remover módulos',
+        severity: 'error'
+      });
+    }
+  };
+
+  // Função para atualizar um módulo
+  const handleUpdateModule = async (moduleKey, updates) => {
+    try {
+      const updatedModules = {
+        ...userModules,
+        [moduleKey]: {
+          ...userModules[moduleKey],
+          ...updates
+        }
+      };
+      
+      await update(ref(db, `company/${id}`), {
+        activeModules: updatedModules
+      });
+      
+      setUserModules(updatedModules);
+      
+      setSnackbar({
+        open: true,
+        message: `Módulo atualizado com sucesso!`,
+        severity: 'success'
+      });
+      
+    } catch (error) {
+      console.error('Erro ao atualizar módulo:', error);
+      setSnackbar({
+        open: true,
+        message: 'Erro ao atualizar módulo',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleDeleteCompany = async () => {
+    if (window.confirm('Tem certeza que deseja eliminar permanentemente esta empresa? Esta ação não pode ser desfeita.')) {
+      try {
+        await remove(ref(db, `company/${id}`));
+        setSnackbar({
+          open: true,
+          message: 'Empresa eliminada com sucesso',
+          severity: 'success'
+        });
+        navigate('/');
+      } catch (error) {
+        console.error('Erro ao eliminar empresa:', error);
+        setSnackbar({
+          open: true,
+          severity: 'error',
+          message: 'Erro ao eliminar empresa'
+        });
+      }
+    }
+  };
 
   const gerarFatura = (sub) => {
     const doc = new jsPDF();
@@ -359,7 +467,7 @@ const EmpresaDetalhes = () => {
                 value={empresa.email} 
                 icon={<Email className="!h-5 !w-5" />} 
               />
-                <InfoCard 
+              <InfoCard 
                 title="Password" 
                 value={empresa.password} 
                 icon={<Email className="!h-5 !w-5" />} 
@@ -467,54 +575,135 @@ const EmpresaDetalhes = () => {
       case 'modulos':
         return (
           <div className="space-y-6">
-            <SectionHeader title="Módulos Ativos" icon={<CheckCircle className="!h-5 !w-5" />} />
+            <div className="flex justify-between items-center">
+              <SectionHeader title="Módulos Ativos" icon={<CheckCircle className="!h-5 !w-5" />} />
+              {Object.keys(userModules).length > 0 && (
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="small"
+                  startIcon={<Delete />}
+                  onClick={() => {
+                    setConfirmDialog({
+                      open: true,
+                      message: 'Tem certeza que deseja remover TODOS os módulos? Esta ação não pode ser desfeita.',
+                      onConfirm: handleRemoveAllModules
+                    });
+                  }}
+                >
+                  Remover Todos
+                </Button>
+              )}
+            </div>
             
             {Object.keys(userModules).length > 0 ? (
               <div className="grid grid-cols-1 gap-4">
                 {Object.entries(userModules)
                   .filter(([_, module]) => module.status === "active")
-                  .map(([key, module]) => (
-                    <div key={key} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-                      <div 
-                        className="flex justify-between items-center cursor-pointer"
-                        onClick={() => toggleModuleDetails(key)}
-                      >
-                        <div>
-                          <h3 className="font-medium text-gray-800 capitalize">
-                            {key.replace('modulo', 'Módulo ')}
-                          </h3>
-                          <p className="text-sm text-gray-500">
-                            {module.expiresAt ? `Expira em: ${new Date(module.expiresAt).toLocaleDateString()}` : ''}
-                          </p>
+                  .map(([key, module]) => {
+                    const moduleName = key.replace('modulo', 'Módulo ');
+                    const isExpired = module.expiresAt && new Date(module.expiresAt) < new Date();
+                    
+                    return (
+                      <div key={key} className={`bg-white p-4 rounded-lg shadow-sm border ${isExpired ? 'border-red-200' : 'border-gray-100'}`}>
+                        <div 
+                          className="flex justify-between items-center cursor-pointer"
+                          onClick={() => toggleModuleDetails(key)}
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div>
+                              <h3 className="font-medium text-gray-800 capitalize">
+                                {moduleName}
+                              </h3>
+                              <p className="text-sm text-gray-500">
+                                {module.expiresAt ? (
+                                  isExpired ? (
+                                    <span className="text-red-500">⚠️ Expirado em: {new Date(module.expiresAt).toLocaleDateString()}</span>
+                                  ) : (
+                                    `Expira em: ${new Date(module.expiresAt).toLocaleDateString()}`
+                                  )
+                                ) : ''}
+                              </p>
+                            </div>
+                            {isExpired && (
+                              <Chip label="Expirado" color="error" size="small" />
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-gray-500">
+                              {expandedModules[key] ? '▲' : '▼'}
+                            </span>
+                          </div>
                         </div>
-                        <span className="text-gray-500">
-                          {expandedModules[key] ? '▲' : '▼'}
-                        </span>
+                        
+                        {expandedModules[key] && (
+                          <div className="mt-3 pl-2 border-l-2 border-blue-200 space-y-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Status:</span> {module.status}
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Pago em:</span> {module.paidAt ? new Date(module.paidAt).toLocaleDateString() : 'Não informado'}
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Expira em:</span> {module.expiresAt ? new Date(module.expiresAt).toLocaleDateString() : 'Não informado'}
+                              </p>
+                              {module.smsCount !== undefined && (
+                                <p className="text-sm text-gray-600">
+                                  <span className="font-medium">SMS disponíveis:</span> {module.smsCount}
+                                </p>
+                              )}
+                            </div>
+                            
+                            <div className="flex space-x-2 mt-2 pt-2 border-t border-gray-100">
+                              <Button
+                                variant="contained"
+                                color="error"
+                                size="small"
+                                startIcon={<Delete />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteModuleDialog({
+                                    open: true,
+                                    moduleKey: key,
+                                    moduleName: moduleName
+                                  });
+                                }}
+                              >
+                                Remover
+                              </Button>
+                              
+                              <Button
+                                variant="outlined"
+                                size="small"
+                                startIcon={<Edit />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // Aqui você pode abrir um diálogo para editar o módulo
+                                  const newExpiryDate = prompt('Nova data de expiração (YYYY-MM-DD):', 
+                                    module.expiresAt ? new Date(module.expiresAt).toISOString().split('T')[0] : ''
+                                  );
+                                  if (newExpiryDate) {
+                                    handleUpdateModule(key, {
+                                      expiresAt: new Date(newExpiryDate).getTime()
+                                    });
+                                  }
+                                }}
+                              >
+                                Editar Data
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      
-                      {expandedModules[key] && (
-                        <div className="mt-3 pl-2 border-l-2 border-blue-200 space-y-2">
-                          <p className="text-sm text-gray-600">
-                            <span className="font-medium">Status:</span> {module.status}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            <span className="font-medium">Pago em:</span> {module.paidAt ? new Date(module.paidAt).toLocaleDateString() : 'Não informado'}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            <span className="font-medium">Expira em:</span> {module.expiresAt ? new Date(module.expiresAt).toLocaleDateString() : 'Não informado'}
-                          </p>
-                          {module.smsCount !== undefined && (
-                            <p className="text-sm text-gray-600">
-                              <span className="font-medium">SMS disponíveis:</span> {module.smsCount}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
               </div>
             ) : (
-              <p className="text-gray-500">Nenhum módulo ativo</p>
+              <div className="text-center py-8 bg-gray-50 rounded-lg">
+                <p className="text-gray-500">Nenhum módulo ativo encontrado</p>
+                <p className="text-sm text-gray-400 mt-1">Os módulos aparecerão aqui quando a empresa adquirir assinaturas</p>
+              </div>
             )}
 
             <ModulosComponent empresa={empresa} activeModules={userModules} />
@@ -526,7 +715,7 @@ const EmpresaDetalhes = () => {
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-lg shadow-sm">
               <SectionHeader title="Configurações da Empresa" icon={<Engineering className="!h-5 !w-5" />} />
-                <Divider sx={{ my: 3 }} />
+              <Divider sx={{ my: 3 }} />
       
               <div className="bg-red-50 p-4 rounded-lg border border-red-100">
                 <SectionHeader 
@@ -547,7 +736,7 @@ const EmpresaDetalhes = () => {
                 </Button>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 mt-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status da Empresa</label>
                   <select
@@ -680,21 +869,21 @@ const EmpresaDetalhes = () => {
                           <div className="flex items-center">
                             <div className="flex-shrink-0 h-10 w-10">
                               <Avatar className="!h-10 !w-10">
-                                {visit.visitorName.charAt(0)}
+                                {visit.visitorName?.charAt(0) || 'V'}
                               </Avatar>
                             </div>
                             <div className="ml-4">
                               <div className="text-sm font-medium text-gray-900">
-                                {visit.visitorName}
+                                {visit.visitorName || 'Visitante Anônimo'}
                               </div>
                               <div className="text-sm text-gray-500">
-                                ID: {visit.visitorId}
+                                ID: {visit.visitorId || 'N/A'}
                               </div>
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(visit.timestamp).toLocaleString()}
+                          {visit.timestamp ? new Date(visit.timestamp).toLocaleString() : 'N/A'}
                         </td>
                       </tr>
                     ))}
@@ -759,13 +948,13 @@ const EmpresaDetalhes = () => {
             active={activeTab === 'modulos'} 
             onClick={() => setActiveTab('modulos')}
           >
-            Módulos
+            Módulos ({Object.keys(userModules).filter(key => userModules[key]?.status === 'active').length})
           </TabButton>
           <TabButton 
             active={activeTab === 'historico'} 
             onClick={() => setActiveTab('historico')}
           >
-            Pagamentos
+            Pagamentos ({subscriptions.length})
           </TabButton>
           <TabButton 
             active={activeTab === 'visitas'} 
@@ -786,6 +975,57 @@ const EmpresaDetalhes = () => {
       <div className="bg-white rounded-lg shadow-sm p-6">
         {renderTabContent()}
       </div>
+
+      {/* Diálogo de confirmação para remover módulo individual */}
+      <Dialog
+        open={deleteModuleDialog.open}
+        onClose={() => setDeleteModuleDialog({ open: false, moduleKey: '', moduleName: '' })}
+      >
+        <DialogTitle>Remover Módulo</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Tem certeza que deseja remover o módulo <strong>"{deleteModuleDialog.moduleName}"</strong>?
+            Esta ação não pode ser desfeita e o módulo será removido imediatamente.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteModuleDialog({ open: false, moduleKey: '', moduleName: '' })}>
+            Cancelar
+          </Button>
+          <Button 
+            onClick={() => handleRemoveModule(deleteModuleDialog.moduleKey, deleteModuleDialog.moduleName)}
+            color="error"
+            variant="contained"
+          >
+            Remover
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo de confirmação para ações em massa */}
+      <Dialog
+        open={confirmDialog.open}
+        onClose={() => setConfirmDialog({ open: false, message: '', onConfirm: null })}
+      >
+        <DialogTitle>Confirmar Ação</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {confirmDialog.message}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDialog({ open: false, message: '', onConfirm: null })}>
+            Cancelar
+          </Button>
+          <Button 
+            onClick={confirmDialog.onConfirm}
+            color="error"
+            variant="contained"
+          >
+            Confirmar
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar */}
       <Snackbar

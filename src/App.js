@@ -5,7 +5,6 @@ import { ref, get } from 'firebase/database';
 import { auth, db } from './fb';
 import './App.css';
 
-// Import all your components
 import Dashboard from './components/Dashboard';
 import Empresas from './components/Empresas';
 import EmpresaDetalhes from './components/EmpresaDetalhes';

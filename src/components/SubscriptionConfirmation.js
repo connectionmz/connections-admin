@@ -486,7 +486,6 @@ const handleConfirmSubscription = async () => {
           emailText += `   Data de Fim: ${sub.endDate}\n`;
           if (sub.subscriptionType === 'Paga') {
             emailText += `   Período: ${sub.validity}\n`;
-            emailText += `   Quantidade: ${sub.quantity}\n`;
             emailText += `   Valor: ${(sub.price * sub.quantity).toFixed(2)} MT\n`;
           }
           emailText += `\n`;
