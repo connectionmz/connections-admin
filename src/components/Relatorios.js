@@ -1,20 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { ref, get, remove, update } from 'firebase/database';
-import { db, auth } from '../fb';
-import { onAuthStateChanged } from 'firebase/auth';
+import { db } from '../fb';
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 import {
   ArrowDownTrayIcon,
   CheckIcon,
   XMarkIcon,
-  PencilSquareIcon,
   TrashIcon,
   EyeIcon
 } from '@heroicons/react/24/outline';
+import { AdminPage, AdminPageHeader, InlineAlert, LoadingState, PrimaryButton } from './admin/ui/AdminUI';
 
 export default function Relatorios() {
-  const [currentUser, setCurrentUser] = useState(null);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -22,22 +20,6 @@ export default function Relatorios() {
   const [filter, setFilter] = useState('all');
   const [selectedReport, setSelectedReport] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
-
-  // Verificar autenticação
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setCurrentUser({
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || user.email
-        });
-      } else {
-        setCurrentUser(null);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
 
   // Buscar relatórios
   useEffect(() => {
@@ -149,28 +131,22 @@ export default function Relatorios() {
   };
 
   if (loading && reports.length === 0) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
+    return <LoadingState label="A carregar relatórios..." />;
   }
 
   return (
-    <div className="p-4 md:p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Relatórios dos Usuários</h1>
-        <button
+    <AdminPage>
+      <AdminPageHeader title="Relatórios dos utilizadores" description="Analise, valide e exporte os relatórios submetidos." actions={
+        <PrimaryButton
           onClick={exportToExcel}
-          className="flex items-center px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md"
         >
           <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
           Exportar para Excel
-        </button>
-      </div>
+        </PrimaryButton>
+      } />
 
-      {error && <div className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</div>}
-      {success && <div className="bg-green-100 text-green-700 p-3 rounded mb-4">{success}</div>}
+      {error && <InlineAlert type="error">{error}</InlineAlert>}
+      {success && <InlineAlert type="success">{success}</InlineAlert>}
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-2 mb-6 bg-white p-4 rounded-lg shadow-sm">
@@ -375,6 +351,6 @@ export default function Relatorios() {
           </div>
         )}
       </div>
-    </div>
+    </AdminPage>
   );
 }

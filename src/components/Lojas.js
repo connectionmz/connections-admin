@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ref, get, onValue, remove, update } from 'firebase/database';
-import { db } from '../fb';
+import { auth, db } from '../fb';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { AdminPage, LoadingState } from './admin/ui/AdminUI';
 
 const Lojas = () => {
   // Estados para dados e filtros
@@ -68,24 +69,28 @@ const Lojas = () => {
               // Verificar se a loja está ativa (isActive pode não existir, considerar como ativa por padrão)
               isActive: data.isActive !== undefined ? data.isActive : true
             }))
-            .filter(loja => loja.company?.type !== 'singular') : 
+            .filter(loja => loja.company?.type !== 'singular' && loja.archived !== true) :
           [];
         
         setLojas(lojasList);
 
         // Buscar províncias
         const provinciasRef = ref(db, 'provincias');
-        onValue(provinciasRef, (snapshot) => {
+        const unsubscribeProvincias = onValue(provinciasRef, (snapshot) => {
           const data = snapshot.val();
           setProvincias(data ? Object.values(data) : []);
         });
 
         // Buscar setores de atividade
         const sectoresRef = ref(db, 'sectores_de_atividade');
-        onValue(sectoresRef, (snapshot) => {
+        const unsubscribeSectores = onValue(sectoresRef, (snapshot) => {
           const data = snapshot.val();
           setSectores(data ? Object.values(data) : []);
         });
+        return () => {
+          unsubscribeProvincias();
+          unsubscribeSectores();
+        };
 
       } catch (error) {
         console.error('Erro ao buscar dados:', error);
@@ -95,7 +100,9 @@ const Lojas = () => {
       }
     };
 
-    fetchData();
+    let cleanup;
+    fetchData().then(unsubscribe => { cleanup = unsubscribe; });
+    return () => cleanup?.();
   }, []);
 
   // Carregar produtos de uma loja
@@ -145,37 +152,20 @@ const Lojas = () => {
       setDeleting(true);
       
       // 1. Buscar todos os produtos da loja
-      const produtosSnapshot = await get(ref(db, `stores/${lojaToDelete.id}/products`));
-      const produtosData = produtosSnapshot.val();
-      
-      // 2. Excluir todos os produtos individualmente
-      if (produtosData) {
-        const produtosIds = Object.keys(produtosData);
-        console.log(`Excluindo ${produtosIds.length} produtos da loja...`);
-        
-        // Criar um array de promessas para excluir todos os produtos
-        const deletePromises = produtosIds.map(produtoId => 
-          remove(ref(db, `stores/${lojaToDelete.id}/products/${produtoId}`))
-        );
-        
-        // Aguardar todas as exclusões de produtos
-        await Promise.all(deletePromises);
-        console.log(`${produtosIds.length} produtos excluídos com sucesso.`);
-      }
-      
-      // 3. Excluir a loja (depois de excluir todos os produtos)
-      await remove(ref(db, `stores/${lojaToDelete.id}`));
-      console.log(`Loja ${lojaToDelete.id} excluída com sucesso.`);
+      await update(ref(db, `stores/${lojaToDelete.id}`), {
+        archived: true,
+        isActive: false,
+        status: 'archived',
+        archivedAt: Date.now(),
+        archivedBy: auth.currentUser?.uid || null,
+      });
       
       // 4. Atualizar a lista de lojas no estado
       setLojas(prev => prev.filter(l => l.id !== lojaToDelete.id));
       
       // 5. Mostrar mensagem de sucesso com detalhes
       const nomeLoja = lojaToDelete.name || lojaToDelete.company?.nome || 'Loja';
-      const totalProdutos = produtosData ? Object.keys(produtosData).length : 0;
-      setSuccessMessage(
-        `Loja "${nomeLoja}" excluída com sucesso! ${totalProdutos > 0 ? `Foram removidos ${totalProdutos} produto(s).` : ''}`
-      );
+      setSuccessMessage(`Loja "${nomeLoja}" arquivada. Os produtos e o histórico foram preservados.`);
       
       // 6. Fechar modais e limpar estado
       setShowDeleteConfirm(false);
@@ -236,7 +226,10 @@ const Lojas = () => {
     try {
       const newStatus = statusUpdate.newStatus;
       await update(ref(db, `stores/${statusUpdate.lojaId}`), {
-        isActive: newStatus
+        isActive: newStatus,
+        status: newStatus ? 'active' : 'suspended',
+        updatedAt: Date.now(),
+        updatedBy: auth.currentUser?.uid || null,
       });
       
       setLojas(prev => prev.map(loja => 
@@ -321,17 +314,13 @@ const Lojas = () => {
   }, [lojas, provincias]);
 
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
+    return <LoadingState label="A carregar lojas..." />;
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <AdminPage>
       {/* Header */}
-      <header className="bg-white shadow">
+      <header className="rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center">
             <div>
@@ -339,15 +328,6 @@ const Lojas = () => {
               <p className="text-sm text-gray-500 mt-1">Gerencie lojas, produtos e status das lojas cadastradas</p>
             </div>
             <div className="flex space-x-3">
-              <Link
-                to="/lojas/nova"
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center"
-              >
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Nova Loja
-              </Link>
               <button
                 onClick={generateReport}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors flex items-center"
@@ -1006,7 +986,7 @@ const Lojas = () => {
           </div>
         </div>
       )}
-    </div>
+    </AdminPage>
   );
 };
 

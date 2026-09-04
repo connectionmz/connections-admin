@@ -1,336 +1,93 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { ref, get } from 'firebase/database';
-import { auth, db } from './fb';
+import { BrowserRouter as Router, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { adminRoutes, legacyAdminRoutes, LoginModal } from './app/adminRoutes';
+import { hasAnyRole, normalizeRoles } from './auth/permissions';
+import { AuthProvider, useAuth } from './auth/AuthContext';
 import './App.css';
 
-import Dashboard from './components/Dashboard';
-import Empresas from './components/Empresas';
-import EmpresaDetalhes from './components/EmpresaDetalhes';
-import LoginModal from './components/LoginModal';
-import Publicidade from './components/Publicidade';
-import ServicoxExternos from './components/ServicoxExternos';
-import Anuncios from './components/Anuncios';
-import UsuariosOffline from './components/Usuarios';
-import Utilizadores from './components/Utilizadores';
-import Cotacoes from './components/roles/Cotacoes';
-import DashboardSectorPublico from './components/DashboardSectorPublico';
-import Validacoes from './components/Validacoes';
-import CadastroEmpresa from './components/CadastroEmpresa';
-import Sectores from './components/Sectores';
-import Denuncias from './components/Denuncias';
-import Publicacoes from './components/Publicacoes';
-import Pagar from './components/Pagar';
-import Relatorios from './components/Relatorios';
-import ChangePassword from './components/ChangePassword';
-import Modulos from './components/Modulos';
-import RelatorioForm from './components/RelatorioForm';
-import SubscriptionConfirmation from './components/SubscriptionConfirmation';
-import Feedback from './components/Feedback';
-import Singulares from './components/Singulares';
-import Versingular from './components/VerSingular';
-import Concursos from './components/roles/Concursos';
-import ConcursosUgea from './components/ConursosUgea';
-import AdminEventos from './components/Eventos';
-import Lojas from './components/Lojas';
+const LoadingScreen = () => <div className="admin-loading-screen" role="status" aria-live="polite"><span className="admin-spinner" aria-hidden="true" /><p>A carregar o painel...</p></div>;
 
-const LoadingScreen = () => (
-  <div className="flex items-center justify-center h-screen bg-gray-200">
-    <div className="text-xl font-semibold text-gray-700">Carregando...</div>
-  </div>
-);
+const AccessDenied = ({ user }) => {
+  const destination = adminRoutes.find(route => route.navigation && hasAnyRole(user, route.roles))?.path || '/login';
+  return <section className="mx-auto max-w-xl rounded-2xl border border-red-200 bg-white p-8 text-center shadow-sm"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-xl text-red-700" aria-hidden="true">!</div><h1 className="mt-4 text-2xl font-bold text-gray-950">Acesso não autorizado</h1><p className="mt-2 text-gray-600">A sua conta não possui permissão para abrir esta área.</p><NavLink to={destination} className="admin-primary-button mt-6">Voltar a uma área permitida</NavLink></section>;
+};
 
-const SidebarLink = ({ to, label }) => (
-  <li>
-    <Link to={to} className="block p-3 rounded-lg text-lg font-medium bg-gray-800 hover:bg-gray-700 transition">
-      {label}
-    </Link>
-  </li>
-);
+const BlockedAccount = ({ onLogout }) => <main className="admin-loading-screen p-6"><section className="w-full max-w-lg rounded-2xl border border-red-200 bg-white p-8 text-center shadow-sm"><h1 className="text-2xl font-bold text-gray-950">Conta bloqueada</h1><p className="mt-2 text-gray-600">Contacte um administrador para rever o acesso a esta conta.</p><button type="button" onClick={onLogout} className="admin-primary-button mt-6">Terminar sessão</button></section></main>;
 
 const PrivateRoute = ({ children, allowedRoles, user }) => {
-  if (!user) return <Navigate to="/login" />;
-  if (user.blocked) return <div className="p-8 text-center">Esta conta está bloqueada.</div>;
-  //if (user.mustChangePassword) return <Navigate to="/change-password" />;
-
-  const hasAccess = allowedRoles.some(role => user.roles.includes(role));
-  return hasAccess ? children : <Navigate to="/" />;
+  const location = useLocation();
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.mustChangePassword && location.pathname !== '/alterar-senha') return <Navigate to="/alterar-senha" replace state={{ from: location.pathname }} />;
+  if (!hasAnyRole(user, allowedRoles)) return <AccessDenied user={user} />;
+  return children;
 };
 
-const Sidebar = ({ user, handleLogout }) => {
-  const menuItems = [
-    { to: "/", label: "Dashboard", roles: ["admin", "contabilista"] },
-    { to: "/empresas", label: "Empresas", roles: ["admin", "gestor de empresas"] },
-    { to: "/singulares", label: "Singulares", roles: ["admin", "gestor de empresas"] },
-    { to: "/CadastroEmpresa", label: "Cadastrar Empresa", roles: ["admin", "gestor de empresas"] },
-    { to: "/validar", label: "Validações", roles: ["admin", "gestor de empresas"] },
-    { to: "/blog", label: "Blog", roles: ["admin", "gestor de cotações"] },
-    { to: "/feedback", label: "Feebacks", roles: ["admin", "gestor de cotações"] },
-    { to: "/anuncios", label: "Anúncios", roles: ["admin", "contabilista"] },
-    { to: "/usuarios", label: "Usuários", roles: ["admin"] },
-    { to: "/lojas", label: "Lojas", roles: ["admin"] },
-    { to: "/cotacoes", label: "Cotações", roles: ["admin", "gestor de cotações"] },
-    { to: "/concursos", label: "concursos", roles: ["admin", "gestor de cotações"] },
-    { to: "/concursosUgea", label: "concursos Ugea", roles: ["admin", "gestor de cotações"] },
-    { to: "/eventos", label: "Eventos", roles: ["admin", "gestor de cotações"] },
-    { to: "/sectores", label: "Sectores", roles: ["admin", "gestor de cotações"] },
-    { to: "/utilizadores", label: "Utilizadores", roles: ["admin"] },
-    { to: "/modulos", label: "Modulos", roles: ["admin"] },
-    { to: "/denuncias", label: "Denuncias", roles: ["admin"] },
-    { to: "/addRelatorio", label: "Relatorio", roles: ["admin", "gestor de empresas"] },
-    { to: "/relatorio", label: "Relatorio", roles: ["admin"] },
-    { to: "/pagar", label: "Pagamentos", roles: ["admin"] },
-    { to: "/pagarModulo", label: "Pagar", roles: ["admin"] },
-    { to: "/publicacoes", label: "Publicacoes", roles: ["admin"] },
-    { to: "/publico", label: "Setor Público", roles: ["admin"] },
-  ];
+const LegacySingularRedirect = () => {
+  const { id } = useParams();
+  return <Navigate to={`/singulares/${id}`} replace />;
+};
 
-  const filteredItems = menuItems.filter(item => 
-    item.roles.some(role => user?.roles?.includes(role))
-  );
+const navGroup = path => {
+  if (['/', '/crm', '/empresas', '/singulares', '/cadastro-empresa', '/validacoes'].includes(path)) return 'Operação';
+  if (['/conteudos', '/feedback', '/anuncios', '/eventos', '/publicacoes'].includes(path)) return 'Conteúdo';
+  if (['/cotacoes', '/concursos', '/concursos-ugea', '/lojas'].includes(path)) return 'Mercado';
+  if (['/pagamentos', '/subscricoes', '/relatorios', '/relatorios/novo'].includes(path)) return 'Financeiro';
+  return 'Configuração';
+};
 
-  return (
-    <aside className="bg-black text-white w-72 min-h-screen p-6">
-      <div className="mb-10 text-center">
-        <h2 className="text-3xl font-extrabold tracking-tight">Admin Panel</h2>
-        <p className="text-sm text-gray-500">
-          {user?.roles?.join(', ')}
-        </p>
-      </div>
-      <nav>
-        <ul className="space-y-6">
-          {filteredItems.map((item) => (
-            <SidebarLink key={item.to} to={item.to} label={item.label} />
-          ))}
-          <li>
-            <button
-              onClick={handleLogout}
-              className="w-full text-left p-3 rounded-lg text-lg font-medium bg-red-800 text-white hover:bg-gray-700 transition mt-4"
-            >
-              SAIR
-            </button>
-          </li>
-        </ul>
+const Sidebar = ({ user, onLogout, open, onClose }) => {
+  const groups = useMemo(() => adminRoutes.filter(route => route.navigation && hasAnyRole(user, route.roles)).reduce((result, item) => {
+    const group = navGroup(item.path);
+    if (!result[group]) result[group] = [];
+    result[group].push(item);
+    return result;
+  }, {}), [user]);
+  const initial = (user.displayName || user.email || 'A').charAt(0).toUpperCase();
+
+  return <>
+    {open && <button type="button" aria-label="Fechar menu" onClick={onClose} className="fixed inset-0 z-30 bg-slate-950/60 backdrop-blur-sm lg:hidden" />}
+    <aside className={`admin-sidebar ${open ? 'translate-x-0' : '-translate-x-full'}`} aria-label="Menu administrativo">
+      <div className="border-b border-white/10 px-5 py-6"><div className="flex items-start justify-between gap-4"><div className="flex min-w-0 items-center gap-3"><div className="admin-brand-mark" aria-hidden="true">C</div><div className="min-w-0"><p className="truncate text-[11px] font-bold uppercase tracking-[0.16em] text-amber-300">Connection Mozambique</p><h1 className="mt-0.5 text-xl font-bold text-white">Administração</h1></div></div><button type="button" aria-label="Fechar menu" onClick={onClose} className="admin-icon-button-dark lg:hidden">×</button></div></div>
+      <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Navegação administrativa">
+        {Object.entries(groups).map(([group, items]) => <section key={group} className="mb-5"><h2 className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{group}</h2><ul className="space-y-1">{items.map(item => <li key={item.path}><NavLink to={item.path} end={item.path === '/'} onClick={onClose} className={({ isActive }) => `admin-nav-link ${isActive ? 'admin-nav-link-active' : ''}`}><span className="admin-nav-dot" aria-hidden="true" /><span className="truncate">{item.label}</span></NavLink></li>)}</ul></section>)}
       </nav>
+      <div className="border-t border-white/10 p-4"><div className="mb-3 flex items-center gap-3 rounded-xl bg-white/5 p-3"><div className="admin-avatar" aria-hidden="true">{initial}</div><div className="min-w-0"><p className="truncate text-sm font-semibold text-white">{user.displayName || 'Administrador'}</p><p className="truncate text-xs text-slate-400">{normalizeRoles(user).join(', ')}</p></div></div><button type="button" onClick={onLogout} className="w-full rounded-xl border border-white/10 px-4 py-2.5 text-left text-sm font-semibold text-slate-300 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200">Terminar sessão</button></div>
     </aside>
-  );
+  </>;
 };
 
-function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
+const AdminShell = ({ user, onLogout }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+  const currentRoute = adminRoutes.find(route => route.path === location.pathname || (route.path.includes('/:') && location.pathname.startsWith(route.path.split('/:')[0])));
+  const initial = (user.displayName || user.email || 'A').charAt(0).toUpperCase();
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          const snapshot = await get(ref(db, `utilizadores/${firebaseUser.uid}`));
-          if (snapshot.exists()) {
-            const userData = snapshot.val();
-            const formattedUser = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              displayName: firebaseUser.displayName || userData.name || '',
-              roles: Array.isArray(userData.roles) ? userData.roles : 
-                    (userData.role ? [userData.role] : []),
-              mustChangePassword: userData.mustChangePassword === true,
-              blocked: userData.blocked === true
-            };
-            sessionStorage.setItem('user', JSON.stringify(formattedUser));
-            setUser(formattedUser);
-          } else {
-            await auth.signOut();
-          }
-        } catch (error) {
-          console.error('Error fetching user data:', error);
-        }
-      } else {
-        sessionStorage.removeItem('user');
-        setUser(null);
-      }
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
+    const closeOnEscape = event => event.key === 'Escape' && setMenuOpen(false);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
   }, []);
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      sessionStorage.removeItem('user');
-      window.location.href = '/login';
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  };
+  return <div className="admin-shell">
+    <a href="#admin-content" className="admin-skip-link">Saltar para o conteúdo</a>
+    <Sidebar user={user} onLogout={onLogout} open={menuOpen} onClose={() => setMenuOpen(false)} />
+    <div className="min-w-0 flex-1">
+      <header className="admin-topbar"><div className="flex min-w-0 items-center gap-3"><button type="button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu" aria-expanded={menuOpen} className="admin-menu-button lg:hidden"><span aria-hidden="true">☰</span></button><div className="min-w-0"><p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Painel administrativo</p><p className="truncate text-sm font-semibold text-gray-900">{currentRoute?.label || 'Visão geral'}</p></div></div><div className="ml-4 flex min-w-0 items-center gap-3"><div className="hidden min-w-0 text-right sm:block"><p className="truncate text-sm font-semibold text-gray-900">{user.displayName || 'Administrador'}</p><p className="truncate text-xs text-gray-500">{user.email}</p></div><div className="admin-avatar admin-avatar-light" aria-hidden="true">{initial}</div></div></header>
+      <main id="admin-content" className="admin-content" tabIndex="-1"><Routes>
+        {adminRoutes.map(({ path, component: Component, roles }) => <Route key={path} path={path} element={<PrivateRoute user={user} allowedRoles={roles}><Component /></PrivateRoute>} />)}
+        {legacyAdminRoutes.map(([from, to]) => <Route key={from} path={from} element={from.includes(':id') ? <LegacySingularRedirect /> : <Navigate to={to} replace />} />)}
+        <Route path="/sem-permissao" element={<AccessDenied user={user} />} /><Route path="*" element={<Navigate to="/" replace />} />
+      </Routes></main>
+    </div>
+  </div>;
+};
 
-  if (loading) {
-    return <LoadingScreen />;
-  }
+const AdminApplication = () => {
+  const { user, loading, logout } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (user?.blocked) return <BlockedAccount onLogout={logout} />;
+  return user ? <AdminShell user={user} onLogout={logout} /> : <Routes><Route path="/login" element={<LoginModal />} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes>;
+};
 
-  return (
-    <Router>
-      {user ? (
-        <div className="flex min-h-screen bg-gray-50">
-          <Sidebar user={user} handleLogout={handleLogout} />
-          <main className="flex-1 p-8">
-            <Routes>
-              <Route path="/" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'contabilista']}>
-                  <Dashboard />
-                </PrivateRoute>
-              } />
-              <Route path="/empresas" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <Empresas />
-                </PrivateRoute>
-              } />
-
-              <Route path="/singulares" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <Singulares />
-                </PrivateRoute>
-              } />
-
-            <Route path="/concursosUgea" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <ConcursosUgea />
-                </PrivateRoute>
-              } />
-              
-              <Route path="/versingulares/:id" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <Versingular />
-                </PrivateRoute>
-              } />
-              <Route path="/relatorios" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <Relatorios />
-                </PrivateRoute>
-              } />
-              <Route path="/addRelatorio" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <RelatorioForm />
-                </PrivateRoute>
-              } />
-              <Route path="/pagar" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <Pagar />
-                </PrivateRoute>
-              } />
-              <Route path="/eventos" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <AdminEventos />
-                </PrivateRoute>
-              } />
- <Route path="/lojas" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <Lojas />
-                </PrivateRoute>
-              } />
-                <Route path="/pagarModulo" element={
-                <PrivateRoute user={user} allowedRoles={['admin']}>
-                  <SubscriptionConfirmation />
-                </PrivateRoute>
-              } />
-              <Route path="/validar" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <Validacoes />
-                </PrivateRoute>
-              } />
-              
-              <Route path="/publico" element={
-                <PrivateRoute user={user} allowedRoles={['admin']}>
-                  <DashboardSectorPublico />
-                </PrivateRoute>
-              } />
-              <Route path="/CadastroEmpresa" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <CadastroEmpresa />
-                </PrivateRoute>
-              } />
-               
-              
-              <Route path="/blog" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
-                  <Publicidade />
-                </PrivateRoute>
-              } />
-               <Route path="/feedback" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
-                  <Feedback />
-                </PrivateRoute>
-              } />
-              <Route path="/servicos" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de serviços']}>
-                  <ServicoxExternos />
-                </PrivateRoute>
-              } />
-              <Route path="/anuncios" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'contabilista']}>
-                  <Anuncios />
-                </PrivateRoute>
-              } />
-              <Route path="/sectores" element={
-                <PrivateRoute user={user} allowedRoles={['admin']}>
-                  <Sectores />
-                </PrivateRoute>
-              } />
-              <Route path="/usuarios" element={
-                <PrivateRoute user={user} allowedRoles={['admin']}>
-                  <UsuariosOffline />
-                </PrivateRoute>
-              } />
-              <Route path="/denuncias" element={
-                <PrivateRoute user={user} allowedRoles={['admin']}>
-                  <Denuncias />
-                </PrivateRoute>
-              } />
-              <Route path="/cotacoes" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
-                  <Cotacoes />
-                </PrivateRoute>
-              } />
-              <Route path="/concursos" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de cotações']}>
-                  <Concursos />
-                </PrivateRoute>
-              } />
-              <Route path="/modulos" element={
-                <PrivateRoute user={user} allowedRoles={['admin']}>
-                  <Modulos />
-                </PrivateRoute>
-              } />
-              <Route path="/utilizadores" element={
-                <PrivateRoute user={user} allowedRoles={['admin']}>
-                  <Utilizadores />
-                </PrivateRoute>
-              } />
-              <Route path="/publicacoes" element={
-                <PrivateRoute user={user} allowedRoles={['admin']}>
-                  <Publicacoes />
-                </PrivateRoute>
-              } />
-            
-              <Route path="/empresas/:id" element={
-                <PrivateRoute user={user} allowedRoles={['admin', 'gestor de empresas']}>
-                  <EmpresaDetalhes />
-                </PrivateRoute>
-              } />
-              <Route path="/change-password" element={<ChangePassword />} />
-              <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
-          </main>
-        </div>
-      ) : (
-        <Routes>
-          <Route path="/login" element={<LoginModal />} />
-          <Route path="*" element={<Navigate to="/login" />} />
-        </Routes>
-      )}
-    </Router>
-  );
-}
+function App() { return <Router><AuthProvider><AdminApplication /></AuthProvider></Router>; }
 
 export default App;

@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { getDatabase, ref, onValue, update } from "firebase/database";
+import { ref, onValue, push, update } from "firebase/database";
 import sendEmail from "./utils/sendMail";
+import { auth, db } from '../fb';
+import { isCompanyPendingValidation } from '../domain/moderation';
+import { AdminPage, AdminPageHeader, EmptyState, InlineAlert, LoadingState } from './admin/ui/AdminUI';
 
 const Validacoes = () => {
   const [empresas, setEmpresas] = useState([]);
@@ -17,10 +20,9 @@ const Validacoes = () => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const fetchEmpresas = useCallback(() => {
-    const db = getDatabase();
     const empresasRef = ref(db, "company");
 
-    onValue(
+    return onValue(
       empresasRef,
       (snapshot) => {
         const data = snapshot.val();
@@ -34,9 +36,12 @@ const Validacoes = () => {
           setFilteredEmpresas(
             empresasList.filter(
               (empresa) => 
-                empresa?.subscriptions?.isverify !== "true"
+                isCompanyPendingValidation(empresa)
             )
           );
+        } else {
+          setEmpresas([]);
+          setFilteredEmpresas([]);
         }
         setLoading(false);
       },
@@ -49,7 +54,7 @@ const Validacoes = () => {
   }, []);
 
   useEffect(() => {
-    fetchEmpresas();
+    return fetchEmpresas();
   }, [fetchEmpresas]);
 
   const sendValidationEmail = async (email, companyName, action) => {
@@ -125,13 +130,21 @@ Equipe Connection Mozambique`;
 
     try {
       setIsProcessing(true);
-      const db = getDatabase();
-      const empresaRef = ref(db, `company/${selectedEmpresa.id}/subscriptions`);
-
-      await update(empresaRef, {
-        isverify: "true",
-        validadoPor: "Admin",
-        dataValidacao: new Date().toISOString(),
+      const now = new Date().toISOString();
+      const decisionRef = push(ref(db, 'moderation/companyValidations'));
+      await update(ref(db), {
+        [`company/${selectedEmpresa.id}/subscriptions/isverify`]: 'true',
+        [`company/${selectedEmpresa.id}/subscriptions/validadoPor`]: auth.currentUser?.uid || 'admin',
+        [`company/${selectedEmpresa.id}/subscriptions/dataValidacao`]: now,
+        [`company/${selectedEmpresa.id}/verificationStatus`]: 'aprovado',
+        [`company/${selectedEmpresa.id}/subscriptions/motivoInvalidacao`]: null,
+        [`company/${selectedEmpresa.id}/subscriptions/notaInvalidacao`]: null,
+        [`moderation/companyValidations/${decisionRef.key}`]: {
+          companyId: selectedEmpresa.id,
+          status: 'aprovado',
+          decidedAt: now,
+          decidedBy: auth.currentUser?.uid || 'admin'
+        }
       });
 
       await sendValidationEmail(selectedEmpresa.email, selectedEmpresa.nome, "validar");
@@ -153,15 +166,23 @@ Equipe Connection Mozambique`;
     if (!selectedEmpresa || !invalidateReason || isProcessing) return;
     try {
       setIsProcessing(true);
-      const db = getDatabase();
-      const empresaRef = ref(db, `company/${selectedEmpresa.id}/subscriptions`);
-
-      await update(empresaRef, {
-        isverify: "false",
-        motivoInvalidacao: invalidateReason,
-        notaInvalidacao: invalidateNote,
-        invalidadoPor: "Admin",
-        dataInvalidacao: new Date().toISOString(),
+      const now = new Date().toISOString();
+      const decisionRef = push(ref(db, 'moderation/companyValidations'));
+      await update(ref(db), {
+        [`company/${selectedEmpresa.id}/subscriptions/isverify`]: 'false',
+        [`company/${selectedEmpresa.id}/subscriptions/motivoInvalidacao`]: invalidateReason,
+        [`company/${selectedEmpresa.id}/subscriptions/notaInvalidacao`]: invalidateNote || null,
+        [`company/${selectedEmpresa.id}/subscriptions/invalidadoPor`]: auth.currentUser?.uid || 'admin',
+        [`company/${selectedEmpresa.id}/subscriptions/dataInvalidacao`]: now,
+        [`company/${selectedEmpresa.id}/verificationStatus`]: 'rejeitado',
+        [`moderation/companyValidations/${decisionRef.key}`]: {
+          companyId: selectedEmpresa.id,
+          status: 'rejeitado',
+          reason: invalidateReason,
+          note: invalidateNote || null,
+          decidedAt: now,
+          decidedBy: auth.currentUser?.uid || 'admin'
+        }
       });
 
       await sendValidationEmail(selectedEmpresa.email, selectedEmpresa.nome, "invalidar");
@@ -194,7 +215,7 @@ Equipe Connection Mozambique`;
     if (selectedEmpresa?.contacto) {
       window.open(`tel:${selectedEmpresa.contacto}`, "_self");
     } else {
-      alert("Número de telefone não disponível.");
+      setError('Número de telefone não disponível.');
     }
   };
 
@@ -206,15 +227,15 @@ Equipe Connection Mozambique`;
     if (term.trim() === "") {
       setFilteredEmpresas(
         empresas.filter(
-          (empresa) => empresa?.subscriptions?.isverify !== "true"
+          (empresa) => isCompanyPendingValidation(empresa)
         )
       );
     } else {
       setFilteredEmpresas(
         empresas.filter(
           (empresa) =>
-            empresa?.subscriptions?.isverify !== "true" &&
-            (empresa.nome.toLowerCase().includes(term) ||
+            isCompanyPendingValidation(empresa) &&
+            ((empresa.nome || '').toLowerCase().includes(term) ||
             (empresa.sigla && empresa.sigla.toLowerCase().includes(term)))
         )
       );
@@ -226,20 +247,15 @@ Equipe Connection Mozambique`;
     setSearchTerm("");
     setFilteredEmpresas(
       empresas.filter(
-        (empresa) => empresa?.subscriptions?.isverify !== "true"
+        (empresa) => isCompanyPendingValidation(empresa)
       )
     );
   };
 
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
-      <div className="max-w-7xl mx-auto">
+    <AdminPage>
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-800">Validações de Empresas</h1>
-            <p className="text-gray-600 mt-1">Gerencie as solicitações de validação de empresas</p>
-          </div>
+        <AdminPageHeader title="Validação de empresas" description="Analise os dados submetidos e registe decisões verificáveis sobre cada empresa." actions={
           <div className="w-full md:w-auto">
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -269,7 +285,7 @@ Equipe Connection Mozambique`;
               )}
             </div>
           </div>
-        </div>
+        } />
 
         {/* Status Indicators */}
         {emailStatus === 'sending' && (
@@ -300,37 +316,17 @@ Equipe Connection Mozambique`;
 
         {/* Loading Indicator */}
         {loading && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-            <p className="text-gray-600">Carregando empresas...</p>
-          </div>
+          <LoadingState label="A carregar empresas..." />
         )}
 
         {/* Error Message */}
         {error && (
-          <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-lg">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-red-700">{error}</h3>
-              </div>
-            </div>
-          </div>
+          <InlineAlert type="error" onClose={() => setError(null)}>{error}</InlineAlert>
         )}
 
         {/* List of Companies Pending Validation */}
         {!loading && filteredEmpresas.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h3 className="mt-2 text-lg font-medium text-gray-900">Nenhuma empresa pendente</h3>
-            <p className="mt-1 text-gray-500">Todas as empresas foram validadas ou não há solicitações no momento.</p>
-          </div>
+          <EmptyState title="Nenhuma empresa pendente" description="Todas as empresas foram analisadas ou não existem solicitações neste momento." />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredEmpresas.map((empresa) => (
@@ -622,8 +618,7 @@ Equipe Connection Mozambique`;
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </AdminPage>
   );
 };
 

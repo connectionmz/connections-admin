@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../fb'; 
 import { ref, get } from 'firebase/database';
 import {
@@ -14,7 +14,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { Doughnut, Bar, Line, Pie } from 'react-chartjs-2';
+import { Doughnut, Bar, Line } from 'react-chartjs-2';
+import { AdminPage, AdminPageHeader, LoadingState } from './admin/ui/AdminUI';
 
 // Registrar componentes do Chart.js
 ChartJS.register(
@@ -38,13 +39,13 @@ const EstatisticasEmpresas = () => {
   const [empresaSelecionada, setEmpresaSelecionada] = useState(null);
 
   // Configurações de cores
-  const CORES = {
+  const CORES = useMemo(() => ({
     online: '#4CAF50',
     inativo: '#FF9800',
     offline: '#F44336',
     acessos: '#2196F3',
     fundo: 'rgba(33, 150, 243, 0.1)'
-  };
+  }), []);
 
   const buscarDadosEmpresas = async () => {
     try {
@@ -206,7 +207,7 @@ const EstatisticasEmpresas = () => {
       taxaRetencao: ((empresasOnline / totalEmpresas) * 100).toFixed(1),
       mediaAcessosPorEmpresa: (acessosMesTotal / totalEmpresas).toFixed(1)
     };
-  }, [dadosEmpresas]);
+  }, [dadosEmpresas, CORES]);
 
   // Filtrar empresas baseado no status
   const empresasFiltradas = React.useMemo(() => {
@@ -297,12 +298,7 @@ const EstatisticasEmpresas = () => {
 
   // Componente de loading
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-        <p className="ml-4 text-lg">Carregando estatísticas...</p>
-      </div>
-    );
+    return <LoadingState label="A carregar estatísticas..." />;
   }
 
   // Componente de Detalhes da Empresa
@@ -389,7 +385,8 @@ const EstatisticasEmpresas = () => {
   ];
 
   return (
-    <div className="container mx-auto p-6 space-y-8">
+    <AdminPage>
+      <AdminPageHeader title="Utilizadores offline" description="Consulte atividade, frequência e distribuição das empresas." />
       {/* Modal de Detalhes */}
       {empresaSelecionada && <DetalhesEmpresa empresa={empresaSelecionada} />}
 
@@ -782,7 +779,7 @@ const EstatisticasEmpresas = () => {
           </div>
         </div>
       )}
-    </div>
+    </AdminPage>
   );
 };
 

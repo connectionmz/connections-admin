@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ref, onValue, update, set } from 'firebase/database';
+import { ref, onValue, update } from 'firebase/database';
 import {
   Card,
   CardContent,
@@ -11,6 +11,7 @@ import {
   Link,
 } from '@mui/material';
 import { db } from '../fb';
+import { buildActiveModuleFromPayment, normalizePaymentStatus, PAYMENT_STATUS } from '../domain/subscriptions';
 
 const ValidarPagamentos = () => {
   const [pagamentos, setPagamentos] = useState([]);
@@ -18,24 +19,25 @@ const ValidarPagamentos = () => {
 
   useEffect(() => {
     const pagamentosRef = ref(db, 'payments');
-    onValue(pagamentosRef, (snapshot) => {
+    const unsubscribe = onValue(pagamentosRef, (snapshot) => {
       const data = snapshot.val() || {};
-      const lista = Object.entries(data).map(([id, value]) => ({ id, ...value }));
-      setPagamentos(lista.filter(p => p.status !== 'aprovado' && p.status !== 'rejeitado'));
+      const lista = Object.entries(data).map(([id, value]) => ({ id, ...value, status: normalizePaymentStatus(value.status) }));
+      setPagamentos(lista.filter(p => p.status === PAYMENT_STATUS.PENDING));
       setLoading(false);
     });
+    return unsubscribe;
   }, []);
 
   const validarPagamento = async (pagamento, aprovado = true) => {
     const updates = {};
-    updates[`payments/${pagamento.id}/status`] = aprovado ? 'aprovado' : 'rejeitado';
+    const now = Date.now();
+    updates[`payments/${pagamento.id}/status`] = aprovado ? PAYMENT_STATUS.PAID : PAYMENT_STATUS.REJECTED;
+    updates[`payments/${pagamento.id}/updatedAt`] = now;
 
     if (aprovado) {
-      // Ativar o módulo para o utilizador
-      updates[`users/${pagamento.userId}/modulos/${pagamento.moduleKey}`] = {
-        ativo: true,
-        data: new Date().toISOString()
-      };
+      const activeModule = buildActiveModuleFromPayment(pagamento, now);
+      if (!activeModule) throw new Error('O pagamento não possui utilizador ou módulo associado.');
+      updates[`company/${pagamento.userId}/activeModules/${pagamento.moduleKey}`] = activeModule;
     }
 
     await update(ref(db), updates);

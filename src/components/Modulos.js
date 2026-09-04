@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, set, push, get } from 'firebase/database';
 import { db } from '../fb';
+import { AdminPage, AdminPageHeader, InlineAlert, LoadingState } from './admin/ui/AdminUI';
 
 const Modulos = () => {
   const [modulos, setModulos] = useState([]);
@@ -172,24 +173,14 @@ const Modulos = () => {
   };
 
   if (loading) {
-    return (
-      <div className="container mx-auto p-4">
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-        </div>
-      </div>
-    );
+    return <LoadingState label="A carregar módulos..." />;
   }
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold mb-6 text-gray-800">Gestão de Módulos</h1>
+    <AdminPage>
+      <AdminPageHeader title="Gestão de Módulos" description="Configure preços, validade e benefícios disponíveis no portal." />
       
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
-          {error}
-        </div>
-      )}
+      {error && <InlineAlert type="error">{error}</InlineAlert>}
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Form Section */}
@@ -370,7 +361,7 @@ const Modulos = () => {
           )}
         </div>
       </div>
-    </div>
+    </AdminPage>
   );
 };
 export default Modulos;

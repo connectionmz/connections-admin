@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, update, remove } from 'firebase/database';
+import { ref, onValue, update } from 'firebase/database';
 import { db } from '../fb';
 import { 
   FaSearch, FaTrash, FaCheck, FaTimes, FaFileAlt, FaBuilding, 
   FaPhone, FaEnvelope, FaUser, FaCalendarAlt, FaMoneyBillWave, 
-  FaFileInvoice, FaSms, FaStore, FaIdCard, FaClock, FaExchangeAlt,
-  FaGift, FaChartBar, FaFileCsv, FaFilter
+  FaFileInvoice, FaSms, FaStore, FaIdCard, FaClock,
+  FaGift, FaChartBar, FaFileCsv
 } from 'react-icons/fa';
 import moment from 'moment';
 import 'moment/locale/pt';
+import { buildActiveModuleFromPayment, isActiveModule, normalizePaymentStatus, PAYMENT_STATUS } from '../domain/subscriptions';
+import { AdminPage, AdminPageHeader, ConfirmDialog, InlineAlert } from './admin/ui/AdminUI';
+import { safePlainText } from '../utils/safeText';
 
 moment.locale('pt');
 
@@ -17,7 +20,7 @@ const Pagar = ({ user }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [payments, setPayments] = useState([]);
   const [trials, setTrials] = useState([]);
-  const [subscriptions, setSubscriptions] = useState({});
+  const [companies, setCompanies] = useState({});
   const [filteredPayments, setFilteredPayments] = useState([]);
   const [filteredTrials, setFilteredTrials] = useState([]);
   const [selectedStatus, setSelectedStatus] = useState('todos');
@@ -27,6 +30,8 @@ const Pagar = ({ user }) => {
   const [endDate, setEndDate] = useState('');
   const [viewMode, setViewMode] = useState('payments');
   const [selectedItem, setSelectedItem] = useState(null);
+  const [feedback, setFeedback] = useState(null);
+  const [pendingDeletion, setPendingDeletion] = useState(null);
   const [stats, setStats] = useState({
     totalPayments: 0,
     paidAmount: 0,
@@ -41,17 +46,24 @@ const Pagar = ({ user }) => {
   useEffect(() => {
     const paymentsRef = ref(db, 'payments');
     const trialsRef = ref(db, 'trials');
-    const subscriptionsRef = ref(db, 'subscriptions');
+    const companiesRef = ref(db, 'company');
     
     const unsubscribePayments = onValue(paymentsRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        const paymentsArray = Object.keys(data).map(key => ({
-          id: key,
-          ...data[key]
-        }));
+        const paymentsArray = Object.keys(data).map(key => {
+          const payment = data[key] || {};
+          return {
+            ...payment,
+            id: key,
+            nome: safePlainText(payment.nome, 150),
+            userName: safePlainText(payment.userName, 150),
+            reference: safePlainText(payment.reference, 180),
+            status: normalizePaymentStatus(payment.status),
+          };
+        });
         paymentsArray.sort((a, b) => b.timestamp - a.timestamp);
-        setPayments(paymentsArray);
+        setPayments(paymentsArray.filter(payment => payment.archived !== true));
       } else {
         setPayments([]);
       }
@@ -65,34 +77,33 @@ const Pagar = ({ user }) => {
           ...data[key]
         }));
         trialsArray.sort((a, b) => b.createdAt - a.createdAt);
-        setTrials(trialsArray);
+        setTrials(trialsArray.filter(trial => trial.archived !== true));
       } else {
         setTrials([]);
       }
     });
 
-    const unsubscribeSubscriptions = onValue(subscriptionsRef, (snapshot) => {
-      const data = snapshot.val();
-      setSubscriptions(data || {});
+    const unsubscribeCompanies = onValue(companiesRef, (snapshot) => {
+      setCompanies(snapshot.val() || {});
     });
 
     return () => {
       unsubscribePayments();
       unsubscribeTrials();
-      unsubscribeSubscriptions();
+      unsubscribeCompanies();
     };
   }, []);
 
   useEffect(() => {
     // Compute stats
     const now = Date.now();
-    const paidAmount = payments.reduce((sum, p) => sum + (p.status === 'pago' ? parseFloat(p.amount || 0) : 0), 0);
-    const pendingCount = payments.filter(p => p.status === 'pendente').length;
-    const rejectedCount = payments.filter(p => p.status === 'rejeitado').length;
-    const paidCount = payments.filter(p => p.status === 'pago').length;
+    const paidAmount = payments.reduce((sum, p) => sum + (p.status === PAYMENT_STATUS.PAID ? Number(p.amount || 0) : 0), 0);
+    const pendingCount = payments.filter(p => p.status === PAYMENT_STATUS.PENDING).length;
+    const rejectedCount = payments.filter(p => p.status === PAYMENT_STATUS.REJECTED).length;
+    const paidCount = payments.filter(p => p.status === PAYMENT_STATUS.PAID).length;
     const activeTrials = trials.filter(t => t.status === 'active' && t.endDate > now).length;
-    const activeSubs = Object.values(subscriptions).reduce((count, companySubs) => {
-      return count + Object.values(companySubs).filter(sub => sub.isActive && sub.end > now).length;
+    const activeSubs = Object.values(companies).reduce((count, company) => {
+      return count + Object.values(company.activeModules || {}).filter(module => isActiveModule(module, now)).length;
     }, 0);
 
     setStats({
@@ -105,7 +116,7 @@ const Pagar = ({ user }) => {
       activeTrials,
       activeSubscriptions: activeSubs
     });
-  }, [payments, trials, subscriptions]);
+  }, [payments, trials, companies]);
 
   useEffect(() => {
     let result = payments;
@@ -194,58 +205,51 @@ const Pagar = ({ user }) => {
   const updatePaymentStatus = async (paymentId, newStatus) => {
     try {
       setLoading(true);
-      await update(ref(db, `payments/${paymentId}`), {
-        status: newStatus,
-        updatedAt: Date.now()
-      });
+      const payment = payments.find(item => item.id === paymentId);
+      const normalizedStatus = normalizePaymentStatus(newStatus);
+      const now = Date.now();
+      const updates = {
+        [`payments/${paymentId}/status`]: normalizedStatus,
+        [`payments/${paymentId}/updatedAt`]: now,
+      };
+      if (normalizedStatus === PAYMENT_STATUS.PAID) {
+        const activeModule = buildActiveModuleFromPayment(payment, now);
+        if (!activeModule) throw new Error('O pagamento não possui utilizador ou módulo associado.');
+        updates[`company/${payment.userId}/activeModules/${payment.moduleKey}`] = activeModule;
+      }
+      await update(ref(db), updates);
+      setFeedback({ type: 'success', text: normalizedStatus === PAYMENT_STATUS.PAID ? 'Pagamento aprovado e módulo ativado.' : 'Estado do pagamento atualizado.' });
     } catch (error) {
       console.error('Erro ao atualizar status:', error);
-      alert('Erro ao atualizar status.');
+      setFeedback({ type: 'error', text: error.message || 'Não foi possível atualizar o pagamento.' });
     } finally {
       setLoading(false);
     }
   };
 
   const deletePayment = async (paymentId) => {
-    if (!window.confirm('Tem certeza que deseja excluir este pagamento permanentemente?')) return;
-    
     try {
       setLoading(true);
-      await remove(ref(db, `payments/${paymentId}`));
+      await update(ref(db, `payments/${paymentId}`), { archived: true, archivedAt: Date.now() });
       setSelectedItem(null);
+      setFeedback({ type: 'success', text: 'Pagamento arquivado. O histórico financeiro foi preservado.' });
     } catch (error) {
       console.error('Erro ao excluir pagamento:', error);
-      alert('Erro ao excluir pagamento.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const updateTrialStatus = async (trialId, newStatus) => {
-    try {
-      setLoading(true);
-      await update(ref(db, `trials/${trialId}`), {
-        status: newStatus,
-        updatedAt: Date.now()
-      });
-    } catch (error) {
-      console.error('Erro ao atualizar status do trial:', error);
-      alert('Erro ao atualizar status do trial.');
+      setFeedback({ type: 'error', text: 'Não foi possível arquivar o pagamento.' });
     } finally {
       setLoading(false);
     }
   };
 
   const deleteTrial = async (trialId) => {
-    if (!window.confirm('Tem certeza que deseja excluir este trial permanentemente?')) return;
-    
     try {
       setLoading(true);
-      await remove(ref(db, `trials/${trialId}`));
+      await update(ref(db, `trials/${trialId}`), { archived: true, archivedAt: Date.now() });
       setSelectedItem(null);
+      setFeedback({ type: 'success', text: 'Período experimental arquivado.' });
     } catch (error) {
       console.error('Erro ao excluir trial:', error);
-      alert('Erro ao excluir trial.');
+      setFeedback({ type: 'error', text: 'Não foi possível arquivar o período experimental.' });
     } finally {
       setLoading(false);
     }
@@ -348,9 +352,9 @@ const Pagar = ({ user }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-8">Gestão de Pagamentos e Trials</h1>
+    <AdminPage>
+        <AdminPageHeader title="Pagamentos e períodos experimentais" description="Acompanhe transações, aprove acessos e consulte os módulos efetivamente ativos no portal." />
+        {feedback && <InlineAlert type={feedback.type} onClose={() => setFeedback(null)}>{feedback.text}</InlineAlert>}
         
         {/* Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -553,7 +557,7 @@ const Pagar = ({ user }) => {
                             </>
                           )}
                           <button 
-                            onClick={() => deletePayment(payment.id)}
+                            onClick={() => setPendingDeletion({ type: 'payment', id: payment.id, label: payment.nome || payment.userName || payment.id })}
                             className="text-gray-600 hover:text-gray-800"
                             disabled={loading}
                           >
@@ -587,7 +591,7 @@ const Pagar = ({ user }) => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex space-x-2" onClick={e => e.stopPropagation()}>
                           <button 
-                            onClick={() => deleteTrial(trial.id)}
+                            onClick={() => setPendingDeletion({ type: 'trial', id: trial.id, label: trial.companyName || trial.id })}
                             className="text-gray-600 hover:text-gray-800"
                             disabled={loading}
                           >
@@ -604,7 +608,6 @@ const Pagar = ({ user }) => {
             </table>
           </div>
         </div>
-      </div>
 
       {/* Details Modal */}
       {selectedItem && (
@@ -760,25 +763,36 @@ const Pagar = ({ user }) => {
                   </>
                 )}
                 <button
-                  onClick={() => {
-                    if (selectedItem.type === 'payment') {
-                      deletePayment(selectedItem.id);
-                    } else {
-                      deleteTrial(selectedItem.id);
-                    }
-                    closeDetails();
-                  }}
+                  onClick={() => setPendingDeletion({
+                    type: selectedItem.type,
+                    id: selectedItem.id,
+                    label: selectedItem.nome || selectedItem.userName || selectedItem.companyName || selectedItem.id
+                  })}
                   className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 flex items-center"
                   disabled={loading}
                 >
-                  <FaTrash className="mr-2" /> Excluir
+                  <FaTrash className="mr-2" /> Arquivar
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
-    </div>
+      <ConfirmDialog
+        open={Boolean(pendingDeletion)}
+        title="Arquivar registo?"
+        description={`O registo de “${pendingDeletion?.label || ''}” deixará de aparecer nas listagens, mas será preservado para auditoria.`}
+        confirmLabel="Arquivar"
+        busy={loading}
+        onCancel={() => setPendingDeletion(null)}
+        onConfirm={async () => {
+          const pending = pendingDeletion;
+          setPendingDeletion(null);
+          if (pending?.type === 'payment') await deletePayment(pending.id);
+          if (pending?.type === 'trial') await deleteTrial(pending.id);
+        }}
+      />
+    </AdminPage>
   );
 };
 

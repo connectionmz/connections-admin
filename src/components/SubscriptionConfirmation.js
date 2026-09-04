@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { db } from '../fb';
 import { ref, onValue, update, push } from 'firebase/database';
 import { 
@@ -16,17 +15,12 @@ import {
   FaFilter,
   FaMapMarkerAlt,
   FaIndustry,
-  FaEye,
-  FaEyeSlash,
   FaCreditCard,
   FaStore,
   FaBox,
   FaMoneyBillWave,
   FaCalendarAlt,
   FaGift,
-  FaClock,
-  FaCrown,
-  FaStar
 } from 'react-icons/fa';
 import sendEmail from './utils/sendMail';
 
@@ -43,21 +37,14 @@ const SubscriptionConfirmation = ({ user }) => {
   const [notes, setNotes] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [companySearch, setCompanySearch] = useState('');
-  const [provinces, setProvinces] = useState([]);
-  const [sectors, setSectors] = useState([]);
   const [selectedProvince, setSelectedProvince] = useState('');
   const [selectedSector, setSelectedSector] = useState('');
-  const [showFilters, setShowFilters] = useState(true);
-  
-  const navigate = useNavigate();
 
   // Load companies, modules, subscriptions, provinces and sectors
   useEffect(() => {
     const companiesRef = ref(db, 'company');
     const modulesRef = ref(db, 'modules/modulos');
     const subscriptionsRef = ref(db, 'subscriptions');
-    const provinciasRef = ref(db, 'provincias');
-    const sectoresRef = ref(db, 'sectores_de_atividade');
 
     const unsubscribeCompanies = onValue(companiesRef, (snapshot) => {
       const data = snapshot.val();
@@ -80,30 +67,10 @@ const SubscriptionConfirmation = ({ user }) => {
       setSubscriptions(snapshot.val() || {});
     });
 
-    const unsubscribeProvinces = onValue(provinciasRef, (snapshot) => {
-      const data = snapshot.val();
-      const provincesArray = data ? Object.keys(data).map(key => ({
-        id: key,
-        ...data[key]
-      })) : [];
-      setProvinces(provincesArray);
-    });
-
-    const unsubscribeSectors = onValue(sectoresRef, (snapshot) => {
-      const data = snapshot.val();
-      const sectorsArray = data ? Object.keys(data).map(key => ({
-        id: key,
-        ...data[key]
-      })) : [];
-      setSectors(sectorsArray);
-    });
-
     return () => {
       unsubscribeCompanies();
       unsubscribeModules();
       unsubscribeSubscriptions();
-      unsubscribeProvinces();
-      unsubscribeSectors();
     };
   }, []);
 
@@ -145,30 +112,6 @@ const SubscriptionConfirmation = ({ user }) => {
     setSelectedCompanies(filteredCompanies.map(company => company.id));
   };
 
-  const selectCompaniesByFilter = (filterType, value) => {
-    let companiesToSelect = [];
-    
-    switch (filterType) {
-      case 'province':
-        companiesToSelect = companies
-          .filter(company => company.province === value)
-          .map(company => company.id);
-        break;
-      case 'sector':
-        companiesToSelect = companies
-          .filter(company => company.sector === value)
-          .map(company => company.id);
-        break;
-      case 'all':
-        companiesToSelect = companies.map(company => company.id);
-        break;
-      default:
-        return;
-    }
-    
-    setSelectedCompanies(companiesToSelect);
-  };
-
   const deselectAllCompanies = () => {
     setSelectedCompanies([]);
   };
@@ -176,7 +119,7 @@ const SubscriptionConfirmation = ({ user }) => {
   const filteredCompanies = companies.filter(company => {
     const companyName = company.nome || '';
     const companySector = company.sector || '';
-    const companyProvince = company.province || '';
+    const companyProvince = company.provincia || company.province || '';
     
     const matchesSearch = companyName.toLowerCase().includes(companySearch.toLowerCase()) ||
                          companySector.toLowerCase().includes(companySearch.toLowerCase());
@@ -201,7 +144,7 @@ const SubscriptionConfirmation = ({ user }) => {
 
   const availableProvinces = [...new Set(
     companies
-      .map(company => company.province)
+      .map(company => company.provincia || company.province)
       .filter(province => province && province.trim() !== '')
   )];
 
@@ -317,8 +260,23 @@ const SubscriptionConfirmation = ({ user }) => {
       trialConverted: false
     };
 
-    const subscriptionRef = ref(db, `subscriptions/${companyId}/${item.moduleKey}`);
-    await update(subscriptionRef, subscriptionData);
+    const activeModuleData = {
+      moduleKey: item.moduleKey,
+      moduleName: item.moduleName,
+      status: 'active',
+      paidAt: new Date(now).toISOString(),
+      expiresAt: subscriptionEnd,
+      durationDays: subscriptionData.durationDays,
+      subscriptionType: item.subscriptionType,
+      paymentId: subscriptionData.paymentId,
+      ...(item.moduleKey === 'moduloSMS' && { smsCount: 100 }),
+      ...(item.moduleKey === 'moduloMarket' && { isPremium: true }),
+    };
+
+    await update(ref(db), {
+      [`subscriptions/${companyId}/${item.moduleKey}`]: subscriptionData,
+      [`company/${companyId}/activeModules/${item.moduleKey}`]: activeModuleData,
+    });
   };
 
 const handleConfirmSubscription = async () => {
