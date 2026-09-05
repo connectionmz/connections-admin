@@ -1,3 +1,5 @@
+import { isNonRevenuePayment } from './crm';
+
 export const INVOICE_STATUS = Object.freeze({ DRAFT: 'draft', ISSUED: 'issued', PAID: 'paid', OVERDUE: 'overdue', CANCELLED: 'cancelled' });
 export const INVOICE_STATUS_LABEL = Object.freeze({ draft: 'Rascunho', issued: 'Emitida', paid: 'Paga', overdue: 'Vencida', cancelled: 'Cancelada' });
 
@@ -18,8 +20,6 @@ export const effectiveInvoiceStatus = (invoice, now = Date.now()) => {
 
 export const canAttachPayment = (invoice, payment) => {
   if (!invoice || !payment || invoice.companyId !== (payment.userId || payment.companyId)) return false;
-  if (payment.isTrial === true || payment.manualActivation === true || payment.activatedManually === true) return false;
-  const method = String(payment.paymentMethod || payment.method || '').toLowerCase();
   const amount = Number(payment.amount || payment.valor || 0);
-  return !['manual', 'trial'].includes(method) && amount > 0 && amount >= Number(invoice.total || 0);
+  return !isNonRevenuePayment(payment) && amount > 0 && amount >= Number(invoice.total || 0);
 };

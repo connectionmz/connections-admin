@@ -23,33 +23,37 @@ const timestamp = value => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-export const isCollectedRevenuePayment = payment => {
-  if (!payment || normalizePaymentStatus(payment.status) !== PAYMENT_STATUS.PAID) return false;
+export const isNonRevenuePayment = payment => {
+  if (!payment) return true;
   const method = String(payment.paymentMethod || payment.method || '').trim().toLowerCase();
   const subscriptionType = String(payment.subscription?.subscriptionType || payment.subscriptionType || '').trim().toLowerCase();
   const source = String(payment.source || payment.origin || '').trim().toLowerCase();
-  if (payment.isTrial === true || subscriptionType === 'trial' || source === 'trial') return false;
-  if (payment.manualActivation === true || payment.activatedManually === true || method === 'manual' || source === 'manual') return false;
+  const activationType = String(payment.activationType || '').trim().toLowerCase();
+  return payment.revenueEligible === false || payment.isTrial === true || subscriptionType === 'trial' || source === 'trial'
+    || payment.manualActivation === true || payment.activatedManually === true
+    || method === 'manual' || source === 'manual' || source === 'admin_manual_activation' || activationType === 'manual';
+};
+
+export const isCollectedRevenuePayment = payment => {
+  if (!payment || normalizePaymentStatus(payment.status) !== PAYMENT_STATUS.PAID || isNonRevenuePayment(payment)) return false;
   return Number(payment.amount || payment.valor || 0) > 0;
 };
 
 export const isPendingRevenuePayment = payment => {
   if (!payment || normalizePaymentStatus(payment.status) !== PAYMENT_STATUS.PENDING) return false;
-  const method = String(payment.paymentMethod || payment.method || '').trim().toLowerCase();
-  const subscriptionType = String(payment.subscription?.subscriptionType || payment.subscriptionType || '').trim().toLowerCase();
-  return payment.isTrial !== true && subscriptionType !== 'trial' && method !== 'manual' && Number(payment.amount || payment.valor || 0) > 0;
+  return !isNonRevenuePayment(payment) && Number(payment.amount || payment.valor || 0) > 0;
 };
 
 export const normalizeCrmCollections = (companies = {}, payments = {}, crm = {}) => ({
   companies: Object.entries(companies || {}).map(([id, value]) => ({ ...(value || {}), id, nome: safePlainText(value?.nome, 150) })),
-  payments: Object.entries(payments || {}).map(([id, value]) => ({ ...(value || {}), id, nome: safePlainText(value?.nome, 150), userName: safePlainText(value?.userName, 150), reference: safePlainText(value?.reference, 180), status: normalizePaymentStatus(value?.status) })),
+  payments: Object.entries(payments || {}).map(([id, value]) => ({ ...(value || {}), id, rawStatus: String(value?.status || '').trim().toLowerCase(), nome: safePlainText(value?.nome, 150), userName: safePlainText(value?.userName, 150), reference: safePlainText(value?.reference, 180), status: normalizePaymentStatus(value?.status) })),
   accounts: crm.accounts || {},
   opportunities: Object.entries(crm.opportunities || {}).map(([id, value]) => ({ id, ...(value || {}) })),
   activities: Object.entries(crm.activities || {}).map(([id, value]) => ({ id, ...(value || {}) })),
   invoices: Object.entries(crm.invoices || {}).map(([id, value]) => ({ id, ...(value || {}) })),
 });
 
-export const calculateCrmMetrics = ({ companies = [], payments = [], opportunities = [], activities = [] }, now = Date.now()) => {
+export const calculateCrmMetrics = ({ companies = [], payments = [], opportunities = [], activities = [], invoices = [] }, now = Date.now()) => {
   const date = new Date(now);
   const monthStart = new Date(date.getFullYear(), date.getMonth(), 1).getTime();
   const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 1).getTime();
@@ -58,8 +62,20 @@ export const calculateCrmMetrics = ({ companies = [], payments = [], opportuniti
     const paidAt = timestamp(payment.paidAt || payment.approvedAt || payment.timestamp || payment.createdAt);
     return paidAt >= monthStart && paidAt < monthEnd;
   }).reduce((sum, payment) => sum + Number(payment.amount || payment.valor || 0), 0);
-  const pendingRevenue = payments.filter(isPendingRevenuePayment)
-    .reduce((sum, payment) => sum + Number(payment.amount || payment.valor || 0), 0);
+  const pendingPayments = payments.filter(isPendingRevenuePayment);
+  const pendingRevenue = pendingPayments.reduce((sum, payment) => sum + Number(payment.amount || payment.valor || 0), 0);
+  const paidCustomers = new Set(paid.map(payment => payment.userId || payment.companyId).filter(Boolean)).size;
+  const paidBySubscription = new Map();
+  paid.forEach(payment => {
+    const companyId = payment.userId || payment.companyId;
+    if (!companyId || !payment.moduleKey) return;
+    const key = `${companyId}:${payment.moduleKey}`;
+    paidBySubscription.set(key, (paidBySubscription.get(key) || 0) + 1);
+  });
+  const recurringSubscriptions = [...paidBySubscription.values()].filter(count => count > 1).length;
+  const renewalRate = paidBySubscription.size ? recurringSubscriptions / paidBySubscription.size * 100 : 0;
+  const cancelledPayments = payments.filter(payment => ['cancelled', 'canceled', 'cancelado', 'cancelada'].includes(payment.rawStatus)).length;
+  const cancellations = cancelledPayments + invoices.filter(invoice => invoice.status === 'cancelled').length;
 
   const latestByModule = new Map();
   paid.forEach(payment => {
@@ -86,7 +102,7 @@ export const calculateCrmMetrics = ({ companies = [], payments = [], opportuniti
   const weightedPipeline = openOpportunities.reduce((sum, item) => sum + Number(item.value || 0) * (Number(item.probability || 0) / 100), 0);
   const overdueActivities = activities.filter(item => item.status !== 'completed' && timestamp(item.dueAt) > 0 && timestamp(item.dueAt) < now).length;
 
-  return { totalCompanies: companies.length, revenueThisMonth, pendingRevenue, mrr, renewalsDue, pipelineValue, weightedPipeline, openOpportunities: openOpportunities.length, overdueActivities };
+  return { totalCompanies: companies.length, paidCustomers, revenueThisMonth, pendingRevenue, pendingPayments: pendingPayments.length, mrr, renewalsDue, renewalRate, cancellations, pipelineValue, weightedPipeline, openOpportunities: openOpportunities.length, overdueActivities };
 };
 
 export const companyCrmSummary = (company, payments = [], account = {}, now = Date.now()) => {

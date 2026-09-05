@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../fb';
 import { ref, onValue, update, push } from 'firebase/database';
+import { prepareCashDocuments } from '../services/cashDocuments';
 import { 
   FaCheck, 
   FaTimes, 
@@ -254,21 +255,29 @@ const SubscriptionConfirmation = ({ user }) => {
       moduleKey: item.moduleKey,
       moduleName: item.moduleName,
       subscriptionType: item.subscriptionType,
-      paymentId: item.subscriptionType === 'paid' ? newPaymentRef.key : null,
+      paymentId: item.subscriptionType === 'paid' ? newPaymentRef?.key || null : null,
       validade: item.validade,
       isTrial: item.subscriptionType === 'trial',
-      trialConverted: false
+      trialConverted: false,
+      activationType: item.subscriptionType === 'trial' ? 'trial' : 'paid_cash',
+      activatedManually: item.subscriptionType === 'trial',
+      revenueEligible: item.subscriptionType === 'paid'
     };
 
     const activeModuleData = {
       moduleKey: item.moduleKey,
       moduleName: item.moduleName,
       status: 'active',
-      paidAt: new Date(now).toISOString(),
+      ...(item.subscriptionType === 'paid'
+        ? { paidAt: new Date(now).toISOString() }
+        : { activatedAt: new Date(now).toISOString() }),
       expiresAt: subscriptionEnd,
       durationDays: subscriptionData.durationDays,
       subscriptionType: item.subscriptionType,
       paymentId: subscriptionData.paymentId,
+      activationType: item.subscriptionType === 'trial' ? 'trial' : 'paid_cash',
+      activatedManually: item.subscriptionType === 'trial',
+      revenueEligible: item.subscriptionType === 'paid',
       ...(item.moduleKey === 'moduloSMS' && { smsCount: 100 }),
       ...(item.moduleKey === 'moduloMarket' && { isPremium: true }),
     };
@@ -362,7 +371,13 @@ const handleConfirmSubscription = async () => {
               timestamp: now,
               updatedAt: now,
               notes: `${notes} | Aplicado a múltiplas empresas`,
-              paymentMethod: 'manual',
+              paymentMethod: 'cash',
+              source: 'admin_cash_payment',
+              activationType: 'paid_cash',
+              cashReceived: true,
+              manualActivation: false,
+              activatedManually: false,
+              revenueEligible: true,
               subscription: {
                 isActive: true,
                 start: now,
@@ -376,7 +391,20 @@ const handleConfirmSubscription = async () => {
 
             const paymentsRef = ref(db, 'payments');
             newPaymentRef = push(paymentsRef);
-            await update(newPaymentRef, paymentData);
+            const documents = await prepareCashDocuments({
+              company, item, paymentRef: newPaymentRef, now, subscriptionEnd,
+              operatorId: user?.id || user?.uid || null,
+            });
+            await update(ref(db), {
+              [`payments/${newPaymentRef.key}`]: {
+                ...paymentData,
+                invoiceId: documents.invoiceId,
+                invoiceNumber: documents.invoiceNumber,
+                receiptId: documents.receiptId,
+                receiptNumber: documents.receiptNumber,
+              },
+              ...documents.updates,
+            });
           }
 
           // Update subscription for both paid and trial
@@ -406,7 +434,7 @@ const handleConfirmSubscription = async () => {
           companySubscriptions.push({
             moduleName: item.moduleName,
             moduleKey: item.moduleKey,
-            subscriptionType: item.subscriptionType === 'paid' ? 'Paga' : 'Trial',
+            subscriptionType: item.subscriptionType === 'paid' ? 'Pagamento físico' : 'Trial',
             startDate: new Date(now).toLocaleDateString('pt-PT'),
             endDate: new Date(subscriptionEnd).toLocaleDateString('pt-PT'),
             quantity: item.quantity,
@@ -432,17 +460,17 @@ const handleConfirmSubscription = async () => {
         }
 
         // Preparar conteúdo do email
-        const emailSubject = `Confirmação de Subscrição grátis - ${company.nome}`;
+        const emailSubject = `Confirmação de ativação de módulo - ${company.nome}`;
         
         let emailText = `Prezado(a) ${company.nome},\n\n`;
-        emailText += `Temos o prazer de informar que a Connection Mozambique ativou gratuitamente o(s) seguinte(s) módulo(s):\n\n`;
+        emailText += `Confirmamos o registo e a ativação do(s) seguinte(s) módulo(s):\n\n`;
         
         for (const sub of subscriptionInfo.subscriptions) {
           emailText += `📦 Módulo: ${sub.moduleName}\n`;
           emailText += `   Tipo: ${sub.subscriptionType}\n`;
           emailText += `   Data de Início: ${sub.startDate}\n`;
           emailText += `   Data de Fim: ${sub.endDate}\n`;
-          if (sub.subscriptionType === 'Paga') {
+          if (sub.subscriptionType === 'Pagamento físico') {
             emailText += `   Período: ${sub.validity}\n`;
             emailText += `   Valor: ${(sub.price * sub.quantity).toFixed(2)} MT\n`;
           }
@@ -463,9 +491,9 @@ const handleConfirmSubscription = async () => {
         // HTML version
         const emailHtml = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #4F46E5;">Confirmação de Subscrição Grátis</h2>
+            <h2 style="color: #4F46E5;">Confirmação de ativação de módulo</h2>
             <p>Prezado(a) <strong>${company.nome}</strong>,</p>
-            <p>Temos o prazer de informar que a Connection Mozambique ativou gratuitamente o(s) seguinte(s) módulo(s):</p>
+            <p>Confirmamos o registo e a ativação do(s) seguinte(s) módulo(s):</p>
             
             ${subscriptionInfo.subscriptions.map(sub => `
               <div style="background-color: #f9fafb; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #4F46E5;">
@@ -473,7 +501,7 @@ const handleConfirmSubscription = async () => {
                 <p style="margin: 5px 0;"><strong>Tipo:</strong> ${sub.subscriptionType}</p>
                 <p style="margin: 5px 0;"><strong>Data de Início:</strong> ${sub.startDate}</p>
                 <p style="margin: 5px 0;"><strong>Data de Fim:</strong> ${sub.endDate}</p>
-                ${sub.subscriptionType === 'Paga' ? `
+                ${sub.subscriptionType === 'Pagamento físico' ? `
                   <p style="margin: 5px 0;"><strong>Período:</strong> ${sub.validity}</p>
                   <p style="margin: 5px 0;"><strong>Quantidade:</strong> ${sub.quantity}</p>
                   <p style="margin: 5px 0;"><strong>Valor Total:</strong> ${(sub.price * sub.quantity).toFixed(2)} MT </p>
@@ -564,13 +592,16 @@ const handleConfirmSubscription = async () => {
                 Ativação em Massa de Subscrições
               </h1>
               <p className="text-gray-600 text-lg">
-                Gerencie subscrições pagas e trials para múltiplas empresas
+                Registe pagamentos físicos confirmados ou atribua períodos trial
               </p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-4 text-center">
               <div className="text-2xl font-bold text-blue-600">{stats.selectedCompanies}</div>
               <div className="text-sm text-gray-500">Empresas Selecionadas</div>
             </div>
+          </div>
+          <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <strong>Separação financeira:</strong> pagamentos físicos confirmados contam como receita real. Trials são gratuitos e permanecem fora do MRR, faturação e receita.
           </div>
 
           {/* Stats Cards */}
@@ -618,7 +649,7 @@ const handleConfirmSubscription = async () => {
                   <div className="text-2xl font-bold text-gray-800">
                     {stats.totalAmount.toLocaleString('pt-PT')} MT
                   </div>
-                  <div className="text-sm text-gray-500">Valor Total</div>
+                  <div className="text-sm text-gray-500">Total recebido em numerário</div>
                 </div>
               </div>
             </div>
@@ -881,7 +912,7 @@ const handleConfirmSubscription = async () => {
                               disabled={selectedCompanies.length === 0 || companiesWithExistingModule.length > 0}
                             >
                               <FaCreditCard className="mr-2" />
-                              Adicionar Pago
+                              Adicionar pagamento físico
                             </button>
                             <button
                               className={`w-full py-3 rounded-lg font-medium transition-all flex items-center justify-center ${
@@ -1128,11 +1159,11 @@ const handleConfirmSubscription = async () => {
                     <div className="font-semibold text-gray-800">{cart.filter(item => item.subscriptionType === 'trial').length * selectedCompanies.length}</div>
                   </div>
                   <div>
-                    <span className="text-gray-500">Subscrições Pagas:</span>
+                    <span className="text-gray-500">Pagamentos físicos:</span>
                     <div className="font-semibold text-gray-800">{cart.filter(item => item.subscriptionType === 'paid').length * selectedCompanies.length}</div>
                   </div>
                   <div className="col-span-2">
-                    <span className="text-gray-500">Valor Total:</span>
+                    <span className="text-gray-500">Valor físico recebido:</span>
                     <div className="font-semibold text-blue-600">
                       {calculateTotal().toLocaleString('pt-PT')} MT
                     </div>

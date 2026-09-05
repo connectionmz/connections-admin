@@ -8,12 +8,31 @@ import {
   FaGift, FaChartBar, FaFileCsv
 } from 'react-icons/fa';
 import moment from 'moment';
+import jsPDF from 'jspdf';
 import 'moment/locale/pt';
 import { buildActiveModuleFromPayment, isActiveModule, normalizePaymentStatus, PAYMENT_STATUS } from '../domain/subscriptions';
 import { AdminPage, AdminPageHeader, ConfirmDialog, InlineAlert } from './admin/ui/AdminUI';
-import { safePlainText } from '../utils/safeText';
+import { safeFileSegment, safePlainText } from '../utils/safeText';
+import { isCollectedRevenuePayment, isNonRevenuePayment } from '../domain/crm';
 
 moment.locale('pt');
+
+const downloadPaymentReceipt = payment => {
+  const pdf = new jsPDF();
+  pdf.setFontSize(18);
+  pdf.text('Comprovativo interno de pagamento', 14, 20);
+  pdf.setFontSize(9);
+  pdf.text('Documento interno — não substitui documento fiscal certificado.', 14, 27);
+  pdf.setFontSize(11);
+  pdf.text(`Recibo: ${payment.receiptNumber || 'LEGADO-' + payment.id}`, 14, 40);
+  pdf.text(`Documento: ${payment.invoiceNumber || 'Não associado'}`, 14, 48);
+  pdf.text(`Empresa: ${safePlainText(payment.nome || payment.userName || 'Empresa', 150)}`, 14, 56);
+  pdf.text(`Módulo: ${safePlainText(payment.moduleName || payment.moduleKey || 'Não informado')}`, 14, 64);
+  pdf.text(`Valor recebido: ${Number(payment.amount || payment.valor || 0).toLocaleString('pt-MZ')} MZN`, 14, 72);
+  pdf.text(`Método: ${payment.paymentMethod === 'cash' ? 'Numerário' : safePlainText(payment.paymentMethod || 'Não informado')}`, 14, 80);
+  pdf.text(`Data: ${new Date(Number(payment.timestamp || payment.paidAt || Date.now())).toLocaleString('pt-MZ')}`, 14, 88);
+  pdf.save(`${safeFileSegment(payment.receiptNumber || `comprovativo_${payment.id}`)}.pdf`);
+};
 
 const Pagar = ({ user }) => {
   const [loading, setLoading] = useState(false);
@@ -26,6 +45,7 @@ const Pagar = ({ user }) => {
   const [selectedStatus, setSelectedStatus] = useState('todos');
   const [selectedModule, setSelectedModule] = useState('todos');
   const [selectedValidade, setSelectedValidade] = useState('todos');
+  const [selectedOrigin, setSelectedOrigin] = useState('todos');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [viewMode, setViewMode] = useState('payments');
@@ -40,7 +60,9 @@ const Pagar = ({ user }) => {
     paidCount: 0,
     totalTrials: 0,
     activeTrials: 0,
-    activeSubscriptions: 0
+    activeSubscriptions: 0,
+    realPayments: 0,
+    manualActivations: 0
   });
 
   useEffect(() => {
@@ -97,7 +119,8 @@ const Pagar = ({ user }) => {
   useEffect(() => {
     // Compute stats
     const now = Date.now();
-    const paidAmount = payments.reduce((sum, p) => sum + (p.status === PAYMENT_STATUS.PAID ? Number(p.amount || 0) : 0), 0);
+    const collectedPayments = payments.filter(isCollectedRevenuePayment);
+    const paidAmount = collectedPayments.reduce((sum, p) => sum + Number(p.amount || p.valor || 0), 0);
     const pendingCount = payments.filter(p => p.status === PAYMENT_STATUS.PENDING).length;
     const rejectedCount = payments.filter(p => p.status === PAYMENT_STATUS.REJECTED).length;
     const paidCount = payments.filter(p => p.status === PAYMENT_STATUS.PAID).length;
@@ -114,7 +137,9 @@ const Pagar = ({ user }) => {
       paidCount,
       totalTrials: trials.length,
       activeTrials,
-      activeSubscriptions: activeSubs
+      activeSubscriptions: activeSubs,
+      realPayments: collectedPayments.length,
+      manualActivations: payments.filter(isNonRevenuePayment).length
     });
   }, [payments, trials, companies]);
 
@@ -137,6 +162,8 @@ const Pagar = ({ user }) => {
         payment.subscription?.validade?.toLowerCase() === selectedValidade.toLowerCase()
       );
     }
+    if (selectedOrigin === 'real') result = result.filter(payment => !isNonRevenuePayment(payment));
+    if (selectedOrigin === 'manual') result = result.filter(isNonRevenuePayment);
 
     // Filtro por data
     if (startDate) {
@@ -164,7 +191,7 @@ const Pagar = ({ user }) => {
     }
     
     setFilteredPayments(result);
-  }, [payments, searchTerm, selectedStatus, selectedModule, selectedValidade, startDate, endDate]);
+  }, [payments, searchTerm, selectedStatus, selectedModule, selectedValidade, selectedOrigin, startDate, endDate]);
 
   useEffect(() => {
     let result = trials;
@@ -357,12 +384,12 @@ const Pagar = ({ user }) => {
         {feedback && <InlineAlert type={feedback.type} onClose={() => setFeedback(null)}>{feedback.text}</InlineAlert>}
         
         {/* Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Total Pagamentos</p>
-                <p className="text-2xl font-bold">{stats.totalPayments}</p>
+                <p className="text-sm text-gray-500">Pagamentos reais</p>
+                <p className="text-2xl font-bold">{stats.realPayments}</p>
               </div>
               <FaMoneyBillWave className="text-blue-500 text-3xl" />
             </div>
@@ -370,10 +397,20 @@ const Pagar = ({ user }) => {
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Valor Total Pago</p>
+                <p className="text-sm text-gray-500">Receita confirmada</p>
                 <p className="text-2xl font-bold">{formatCurrency(stats.paidAmount)}</p>
               </div>
               <FaChartBar className="text-green-500 text-3xl" />
+            </div>
+          </div>
+          <div className="bg-white p-4 rounded-lg border border-amber-200 shadow">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Registos não financeiros</p>
+                <p className="text-2xl font-bold">{stats.manualActivations}</p>
+                <p className="text-xs text-amber-700">Registos legados fora da receita</p>
+              </div>
+              <FaGift className="text-amber-500 text-3xl" />
             </div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow">
@@ -456,6 +493,7 @@ const Pagar = ({ user }) => {
               <option value="moduloMarket">Market</option>
             </select>
             {viewMode === 'payments' && (
+              <>
               <select
                 value={selectedValidade}
                 onChange={(e) => setSelectedValidade(e.target.value)}
@@ -465,6 +503,12 @@ const Pagar = ({ user }) => {
                 <option value="Mensal">Mensal</option>
                 <option value="Anual">Anual</option>
               </select>
+              <select value={selectedOrigin} onChange={(e) => setSelectedOrigin(e.target.value)} className="px-4 py-2 border border-gray-300 rounded-lg">
+                <option value="todos">Todas as origens</option>
+                <option value="real">Receita real</option>
+                <option value="manual">Manual/trial — fora da receita</option>
+              </select>
+              </>
             )}
             <input
               type="date"
@@ -532,6 +576,7 @@ const Pagar = ({ user }) => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatCurrency(parseFloat(payment.amount))}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{payment.mpesaResponse?.output_TransactionID || 'N/A'}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
+                        {isNonRevenuePayment(payment) && <span className="mr-2 inline-flex rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">Fora da receita</span>}
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadge(payment.status)}`}>
                           {getStatusText(payment.status)}
                         </span>
@@ -690,8 +735,9 @@ const Pagar = ({ user }) => {
                         </div>
                         <div>
                           <p className="text-sm text-gray-500">Referência</p>
-                          <p className="font-medium">{selectedItem.referencia || 'Não informada'}</p>
+                          <p className="font-medium">{selectedItem.reference || selectedItem.referencia || 'Não informada'}</p>
                         </div>
+                        {selectedItem.receiptNumber && <div><p className="text-sm text-gray-500">Documentos</p><p className="font-medium">{selectedItem.invoiceNumber} · {selectedItem.receiptNumber}</p></div>}
                       </>
                     ) : (
                       <>
@@ -737,7 +783,12 @@ const Pagar = ({ user }) => {
                 </div>
               )}
 
-              <div className="mt-6 flex justify-end space-x-3">
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                {selectedItem.type === 'payment' && isCollectedRevenuePayment(selectedItem) && (
+                  <button type="button" onClick={() => downloadPaymentReceipt(selectedItem)} className="px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 flex items-center">
+                    <FaFileInvoice className="mr-2" /> Baixar comprovativo
+                  </button>
+                )}
                 {selectedItem.type === 'payment' && selectedItem.status !== 'pago' && (
                   <>
                     <button
