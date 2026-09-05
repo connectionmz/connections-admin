@@ -3,10 +3,10 @@ import { useEffect, useState } from "react";
 import { format } from 'date-fns';
 import ptBR from 'date-fns/locale/pt-BR';
 import { db } from "../fb";
+import { AdminCard, AdminPage, AdminPageHeader, LoadingState } from './admin/ui/AdminUI';
 
 const FeedbackDashboard = () => {
   const [feedbacks, setFeedbacks] = useState([]);
-  const [companies, setCompanies] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("unanswered");
@@ -14,13 +14,13 @@ const FeedbackDashboard = () => {
   useEffect(() => {
     const feedbackRef = ref(db, "feedback");
     const companyRef = ref(db, "company");
+    let unsubscribeFeedback = () => {};
 
-    onValue(companyRef, (companySnapshot) => {
+    const unsubscribeCompanies = onValue(companyRef, (companySnapshot) => {
       const companyData = companySnapshot.val();
       if (companyData) {
-        setCompanies(companyData);
-        
-        const unsubscribe = onValue(feedbackRef, (feedbackSnapshot) => {
+        unsubscribeFeedback();
+        unsubscribeFeedback = onValue(feedbackRef, (feedbackSnapshot) => {
           const feedbackData = feedbackSnapshot.val();
           if (feedbackData) {
             const allFeedbacks = [];
@@ -46,9 +46,12 @@ const FeedbackDashboard = () => {
           setLoading(false);
         });
 
-        return () => unsubscribe();
       }
     });
+    return () => {
+      unsubscribeCompanies();
+      unsubscribeFeedback();
+    };
   }, []);
 
   const handleMarkAsAnswered = (feedbackId, userId) => {
@@ -81,14 +84,14 @@ const FeedbackDashboard = () => {
   };
 
   if (loading) {
-    return <div className="text-center py-8">Carregando feedbacks...</div>;
+    return <LoadingState label="A carregar feedback..." />;
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-800 mb-6">Dashboard de Feedbacks</h1>
+    <AdminPage>
+      <AdminPageHeader title="Feedback" description="Acompanhe e responda às mensagens enviadas pelos utilizadores." />
       
-      <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+      <AdminCard className="p-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
           <div className="flex border-b border-gray-200 w-full">
             <button
@@ -192,8 +195,8 @@ const FeedbackDashboard = () => {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </AdminCard>
+    </AdminPage>
   );
 };
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Line, Bar, Pie, Doughnut } from 'react-chartjs-2';
+import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import { 
   Chart as ChartJS, 
   CategoryScale, 
@@ -15,7 +15,9 @@ import {
 } from 'chart.js';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../fb';
-import { FiTrendingUp, FiMapPin, FiBriefcase, FiUsers, FiCalendar } from 'react-icons/fi';
+import { FiTrendingUp, FiMapPin, FiBriefcase, FiUsers } from 'react-icons/fi';
+import { Link } from 'react-router-dom';
+import { AdminPage, AdminPageHeader, EmptyState, InlineAlert, LoadingState } from './admin/ui/AdminUI';
 
 // Register Chart.js components
 ChartJS.register(
@@ -78,7 +80,7 @@ const CompanyTable = ({ empresas }) => {
     return dateB - dateA; // Descending order
   });
 
-  const totalPages = Math.ceil(sortedEmpresas.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(sortedEmpresas.length / itemsPerPage));
 
   // Get data for current page
   const paginatedData = sortedEmpresas.slice(
@@ -88,14 +90,24 @@ const CompanyTable = ({ empresas }) => {
 
   // Helper function to check if company is new (registered in last 7 days)
   const isNew = (dateString) => {
+    if (!dateString) return false;
     const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return false;
     const now = new Date();
     const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-    return diffDays <= 7;
+    return diffDays >= 0 && diffDays <= 7;
   };
 
+  if (empresas.length === 0) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <EmptyState title="Nenhuma empresa no período" description="Ajuste os filtros para consultar outros registos." />
+      </div>
+    );
+  }
+
   return (
-    <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
       {/* Table header with title and pagination controls */}
       <div className="p-4 border-b border-gray-100 flex justify-between items-center">
         <h3 className="text-lg font-semibold text-gray-800">Últimas Empresas Registradas</h3>
@@ -142,20 +154,20 @@ const CompanyTable = ({ empresas }) => {
                 <td className="px-6 py-4 whitespace-nowrap">
              <div className="flex items-center">
   <div className="flex-shrink-0 h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center hover:bg-blue-200 transition-colors">
-    <a href={`/empresas/${empresa.id}`} className="flex items-center justify-center w-full h-full">
+    <Link to={`/empresas/${empresa.id}`} className="flex items-center justify-center w-full h-full">
       <span className="text-blue-600 font-medium hover:text-blue-800">
         {empresa.nome?.charAt(0)?.toUpperCase() || 'E'}
       </span>
-    </a>
+    </Link>
   </div>
   
   <div className="ml-4">
-    <a 
-      href={`/empresas/${empresa.id}`}
+    <Link
+      to={`/empresas/${empresa.id}`}
       className="text-sm font-medium text-gray-900 hover:text-blue-600 transition-colors"
     >
       {empresa.nome}
-    </a>
+    </Link>
     <div className="text-sm text-gray-500">{empresa.email}</div>
   </div>
 </div>
@@ -181,7 +193,7 @@ const CompanyTable = ({ empresas }) => {
                 {/* Registration date column */}
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-gray-500">
-                    {new Date(empresa.createdAt || Date.now()).toLocaleDateString()}
+                    {empresa.createdAt ? new Date(empresa.createdAt).toLocaleDateString('pt-PT') : 'Data não disponível'}
                     {isNew(empresa.createdAt) && (
                       <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
                         Novo
@@ -199,7 +211,7 @@ const CompanyTable = ({ empresas }) => {
 };
 
 // Filters Component (with native date inputs)
-const Filters = ({ onFilter }) => {
+const Filters = ({ onFilter, sectors }) => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [sector, setSector] = useState('');
@@ -250,11 +262,7 @@ const Filters = ({ onFilter }) => {
             className="w-full border border-gray-300 rounded-md p-2 text-sm"
           >
             <option value="">Todos os Setores</option>
-            <option value="Tecnologia">Tecnologia</option>
-            <option value="Comércio">Comércio</option>
-            <option value="Serviços">Serviços</option>
-            <option value="Indústria">Indústria</option>
-            <option value="Agricultura">Agricultura</option>
+            {sectors.map(item => <option key={item} value={item}>{item}</option>)}
           </select>
         </div>
         <div className="flex gap-2">
@@ -297,9 +305,9 @@ const unsubscribe = onValue(empresasRef, (snapshot) => {
     let empresasArray = [];
 
     if (data) {
-      empresasArray = Object.values(data).filter(empresa => 
-        empresa.type !== 'singular'
-      );
+      empresasArray = Object.entries(data)
+        .map(([id, empresa]) => ({ id, ...empresa }))
+        .filter(empresa => empresa.type !== 'singular');
     }
 
     setEmpresas(empresasArray);
@@ -310,6 +318,9 @@ const unsubscribe = onValue(empresasRef, (snapshot) => {
     setError('Erro ao carregar os dados das empresas.');
     setLoading(false);
   }
+}, () => {
+  setError('Erro ao carregar os dados das empresas.');
+  setLoading(false);
 });
 
     return () => unsubscribe();
@@ -322,10 +333,13 @@ const unsubscribe = onValue(empresasRef, (snapshot) => {
       filtered = filtered.filter(emp => emp.sector === sector);
     }
     
-    if (startDate && endDate) {
+    if (startDate || endDate) {
+      const inclusiveEndDate = endDate ? new Date(endDate) : null;
+      inclusiveEndDate?.setHours(23, 59, 59, 999);
       filtered = filtered.filter(emp => {
-        const empDate = new Date(emp.createdAt || Date.now());
-        return empDate >= startDate && empDate <= endDate;
+        const empDate = new Date(emp.createdAt || emp.date || '');
+        if (Number.isNaN(empDate.getTime())) return false;
+        return (!startDate || empDate >= startDate) && (!inclusiveEndDate || empDate <= inclusiveEndDate);
       });
     }
     
@@ -345,15 +359,22 @@ const unsubscribe = onValue(empresasRef, (snapshot) => {
       porSetor[setor] = (porSetor[setor] || 0) + 1;
     });
 
-    const crescimento = [
-      { mes: 'Jan', total: Math.floor(total * 0.3) },
-      { mes: 'Fev', total: Math.floor(total * 0.4) },
-      { mes: 'Mar', total: Math.floor(total * 0.5) },
-      { mes: 'Abr', total: Math.floor(total * 0.6) },
-      { mes: 'Mai', total: Math.floor(total * 0.8) },
-      { mes: 'Jun', total: Math.floor(total * 0.9) },
-      { mes: 'Jul', total: total },
-    ];
+    const monthFormatter = new Intl.DateTimeFormat('pt-PT', { month: 'short' });
+    const crescimento = Array.from({ length: 7 }, (_, offset) => {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      monthStart.setMonth(monthStart.getMonth() - (6 - offset));
+      const nextMonth = new Date(monthStart);
+      nextMonth.setMonth(nextMonth.getMonth() + 1);
+      return {
+        mes: monthFormatter.format(monthStart),
+        total: empresas.filter(empresa => {
+          const createdAt = new Date(empresa.createdAt || empresa.date || '');
+          return !Number.isNaN(createdAt.getTime()) && createdAt >= monthStart && createdAt < nextMonth;
+        }).length,
+      };
+    });
 
     setStats({ total, porProvincia, porSetor, crescimento });
   };
@@ -418,58 +439,25 @@ const unsubscribe = onValue(empresasRef, (snapshot) => {
     .slice(0, 3);
 
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-pulse flex flex-col items-center">
-          <div className="h-12 w-12 bg-blue-500 rounded-full mb-4"></div>
-          <div className="h-4 bg-gray-200 rounded w-32"></div>
-        </div>
-      </div>
-    );
+    return <LoadingState label="A carregar indicadores..." />;
   }
 
   if (error) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="bg-red-50 p-6 rounded-lg max-w-md text-center">
-          <div className="text-red-500 mb-4">
-            <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-          </div>
-          <p className="text-red-600 font-medium">{error}</p>
-          <button 
-            onClick={() => window.location.reload()}
-            className="mt-4 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-          >
-            Tentar Novamente
-          </button>
-        </div>
-      </div>
-    );
+    return <InlineAlert type="error">{error} Atualize a página para tentar novamente.</InlineAlert>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Dashboard Empresarial</h1>
-            <p className="text-gray-500">Visão geral das empresas cadastradas</p>
-          </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-500">Atualizado em: {new Date().toLocaleDateString()}</span>
-          </div>
-        </div>
+    <AdminPage>
+        <AdminPageHeader title="Dashboard empresarial" description={`Visão geral das empresas registadas · Atualizado em ${new Date().toLocaleDateString('pt-PT')}`} />
         
-        <Filters onFilter={handleFilter} />
+        <Filters onFilter={handleFilter} sectors={[...new Set(empresas.map(empresa => empresa.sector).filter(Boolean))].sort()} />
         
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <SummaryCard 
             title="Total de Empresas" 
             value={stats.total} 
-            description="+5% em relação ao mês passado" 
+            description="Empresas incluídas no filtro atual"
             icon={<FiTrendingUp size={20} />} 
             color="blue" 
           />
@@ -489,8 +477,8 @@ const unsubscribe = onValue(empresasRef, (snapshot) => {
           />
           <SummaryCard 
             title="Novas Empresas" 
-            value={stats.crescimento[stats.crescimento.length - 1].total - stats.crescimento[stats.crescimento.length - 2].total} 
-            description="Último mês" 
+            value={stats.crescimento[stats.crescimento.length - 1]?.total || 0}
+            description="Registadas no mês atual"
             icon={<FiUsers size={20} />} 
             color="orange" 
           />
@@ -616,8 +604,7 @@ const unsubscribe = onValue(empresasRef, (snapshot) => {
         
         {/* Company Table */}
         <CompanyTable empresas={filteredEmpresas} />
-      </div>
-    </div>
+    </AdminPage>
   );
 };
 

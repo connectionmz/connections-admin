@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ref, get, update, remove, push } from 'firebase/database';
+import { ref, get, update, push } from 'firebase/database';
 import { db, auth } from '../../fb';
+import { quoteState } from '../../domain/commerce';
+import { safePlainText } from '../../utils/safeText';
+import { ConfirmDialog, InlineAlert } from '../admin/ui/AdminUI';
 
 // Status colors mapping
 const STATUS_COLORS = {
   Aprovada: 'bg-green-100 text-green-800',
+  Pendente: 'bg-yellow-100 text-yellow-800',
+  Fechada: 'bg-purple-100 text-purple-800',
+  Arquivada: 'bg-gray-100 text-gray-800',
   Bloqueada: 'bg-gray-100 text-gray-800',
   Expirada: 'bg-orange-100 text-orange-800',
   Activa: 'bg-blue-100 text-blue-800',
@@ -13,23 +19,7 @@ const STATUS_COLORS = {
 };
 
 function checkCotacaoStatus(cotacao) {
-  if (!cotacao || typeof cotacao !== 'object') return 'Indefinido';
-  
-  // Manual status has priority
-  if (cotacao.status === 'Bloqueada') return 'Bloqueada';
-  if (cotacao.status === 'Recusada') return 'Recusada';
-  
-  try {
-    const now = new Date();
-    const deadline = cotacao.datalimite ? new Date(cotacao.datalimite) : null;
-    
-    if (deadline && now > deadline) return 'Expirada';
-    
-    return cotacao.verified ? 'Aprovada' : 'Activa';
-  } catch (error) {
-    console.error('Error checking status:', error, cotacao);
-    return 'Erro';
-  }
+  return quoteState(cotacao).label;
 }
 
 const CotacoesDashboard = () => {
@@ -50,6 +40,8 @@ const CotacoesDashboard = () => {
   const [actionLog, setActionLog] = useState([]);
   const [selectedCotacao, setSelectedCotacao] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [pendingArchive, setPendingArchive] = useState(null);
+  const [feedback, setFeedback] = useState(null);
 
   // Memoized values
   const sectors = useMemo(() => {
@@ -59,13 +51,16 @@ const CotacoesDashboard = () => {
 
 const stats = useMemo(() => {
   const total = cotacoes.length;
-  const activas = cotacoes.filter(c => checkCotacaoStatus(c) === 'Activa').length;
+  const activas = cotacoes.filter(c => {
+    const state = quoteState(c);
+    return state.lifecycle === 'open' && state.moderation === 'approved';
+  }).length;
   const verificadas = cotacoes.filter(c => c.verified).length;
   const bloqueadas = cotacoes.filter(c => c.status === 'Bloqueada').length;
   const expiradas = cotacoes.filter(c => checkCotacaoStatus(c) === 'Expirada').length;
   
   return { total, activas, verificadas, bloqueadas, expiradas };
-}, [cotacoes, checkCotacaoStatus]); // Add checkCotacaoStatus to dependencies
+}, [cotacoes]);
 
   const totalPages = useMemo(() => 
     Math.ceil(filteredCotacoes.length / pagination.itemsPerPage), 
@@ -117,9 +112,8 @@ const stats = useMemo(() => {
           ...value,
           createdAt: value.timestamp || new Date().toISOString(),
           verified: value.verified || false
-        }));
+        })).filter(item => item.archived !== true && item.lifecycleStatus !== 'archived');
         setCotacoes(cotacoesList);
-        applyFilters(cotacoesList);
       } else {
         setCotacoes([]);
         setFilteredCotacoes([]);
@@ -180,12 +174,13 @@ const stats = useMemo(() => {
     
     setFilteredCotacoes(filtered);
     setPagination(prev => ({ ...prev, currentPage: 1 }));
-  }, [cotacoes, filters, checkCotacaoStatus]);
+  }, [cotacoes, filters]);
 
   // CRUD operations
   const updateCotacao = useCallback(async (id, updates) => {
     try {
       await update(ref(db, `cotacoes/${id}`), updates);
+      setCotacoes(previous => previous.map(item => item.id === id ? { ...item, ...updates } : item));
       return true;
     } catch (error) {
       console.error('Error updating quote:', error);
@@ -194,14 +189,18 @@ const stats = useMemo(() => {
   }, []);
 
   const verifyCotacao = useCallback(async (id) => {
+    const cotacao = cotacoes.find(c => c.id === id);
     const success = await updateCotacao(id, { 
       verified: true,
+      moderationStatus: 'approved',
+      ...(cotacao?.status === 'Bloqueada' && { status: 'open' }),
       verifiedAt: new Date().toISOString(),
-      verifiedBy: auth.currentUser.email
+      verifiedBy: auth.currentUser?.uid || null,
+      updatedAt: Date.now(),
+      updatedBy: auth.currentUser?.uid || null,
     });
     
     if (success) {
-      const cotacao = cotacoes.find(c => c.id === id);
       logAction('Verificada', cotacao);
       fetchCotacoes();
     }
@@ -210,8 +209,11 @@ const stats = useMemo(() => {
   const blockCotacao = useCallback(async (id) => {
     const success = await updateCotacao(id, { 
       status: 'Bloqueada',
+      moderationStatus: 'blocked',
       blockedAt: new Date().toISOString(),
-      blockedBy: auth.currentUser.email
+      blockedBy: auth.currentUser?.uid || null,
+      updatedAt: Date.now(),
+      updatedBy: auth.currentUser?.uid || null,
     });
     
     if (success) {
@@ -224,6 +226,7 @@ const stats = useMemo(() => {
   const unverifyCotacao = useCallback(async (id) => {
     const success = await updateCotacao(id, { 
       verified: false,
+      moderationStatus: 'pending',
       verifiedAt: null,
       verifiedBy: null
     });
@@ -236,17 +239,17 @@ const stats = useMemo(() => {
   }, [cotacoes, updateCotacao, logAction, fetchCotacoes]);
 
   const deleteCotacao = useCallback(async (id) => {
-    if (!window.confirm('Tem certeza que deseja eliminar esta cotação?')) return;
-    
     try {
-      await remove(ref(db, `cotacoes/${id}`));
+      await update(ref(db, `cotacoes/${id}`), { archived: true, lifecycleStatus: 'archived', archivedAt: Date.now(), archivedBy: auth.currentUser?.uid || null });
       const cotacao = cotacoes.find(c => c.id === id);
-      logAction('Eliminada', cotacao);
-      fetchCotacoes();
+      logAction('Arquivada', cotacao);
+      setCotacoes(previous => previous.filter(item => item.id !== id));
+      setFeedback({ type: 'success', message: 'Cotação arquivada e histórico preservado.' });
     } catch (error) {
       console.error('Error deleting quote:', error);
+      setFeedback({ type: 'error', message: 'Não foi possível arquivar a cotação.' });
     }
-  }, [cotacoes, logAction, fetchCotacoes]);
+  }, [cotacoes, logAction]);
 
   // Effects
   useEffect(() => {
@@ -316,10 +319,7 @@ const stats = useMemo(() => {
             
             <div>
               <h4 className="font-medium mb-2">Descrição</h4>
-              <div 
-                className="bg-gray-50 p-4 rounded max-h-60 overflow-y-auto"
-                dangerouslySetInnerHTML={{ __html: cotacao.description }}
-              />
+              <p className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded bg-gray-50 p-4">{safePlainText(cotacao.description, 5000)}</p>
               
               {hasProposals && (
                 <>
@@ -399,6 +399,7 @@ const stats = useMemo(() => {
   return (
     <div className="container mx-auto p-4 md:p-6">
       <h1 className="text-2xl md:text-3xl font-bold mb-6">Gestão de Cotações</h1>
+      {feedback && <InlineAlert type={feedback.type} onClose={() => setFeedback(null)}>{feedback.message}</InlineAlert>}
       
       {/* Statistics */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
@@ -613,9 +614,9 @@ const stats = useMemo(() => {
                   
                   <button
                     className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 text-sm"
-                    onClick={() => deleteCotacao(cotacao.id)}
+                    onClick={() => setPendingArchive(cotacao)}
                   >
-                    Eliminar
+                    Arquivar
                   </button>
                 </div>
               </div>
@@ -716,6 +717,7 @@ const stats = useMemo(() => {
           }} 
         />
       )}
+      <ConfirmDialog open={Boolean(pendingArchive)} title="Arquivar cotação" description="A cotação deixará de aparecer no portal, mas as propostas e o histórico serão preservados." confirmLabel="Arquivar" danger onCancel={() => setPendingArchive(null)} onConfirm={async () => { const item = pendingArchive; setPendingArchive(null); if (item) await deleteCotacao(item.id); }} />
     </div>
   );
 };

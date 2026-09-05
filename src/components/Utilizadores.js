@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ref, push, get, set, remove, query, orderByChild, equalTo } from 'firebase/database';
+import { ref, get, set, update, remove, query, orderByChild, equalTo } from 'firebase/database';
 import { auth, db } from '../fb';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { provisionUserAccount } from '../services/adminUsers';
+import { normalizeRoles } from '../auth/permissions';
+import { AdminPage, AdminPageHeader, ConfirmDialog, InlineAlert } from './admin/ui/AdminUI';
 
 const UserDetailView = ({ user, onClose, onBlock, onDelete, onEdit }) => {
   const [userActivities, setUserActivities] = useState([]);
@@ -303,7 +305,6 @@ const Utilizadores = () => {
   const [activeTab, setActiveTab] = useState('register');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('');
   const [roles, setRoles] = useState([]);
   const [users, setUsers] = useState([]);
   const [newRole, setNewRole] = useState('');
@@ -312,6 +313,8 @@ const Utilizadores = () => {
   const [editingRole, setEditingRole] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [rolesSelecionadas, setRolesSelecionadas] = useState([]);
+  const [feedback, setFeedback] = useState(null);
+  const [confirmation, setConfirmation] = useState({ open: false, type: null, id: null, label: '' });
 
   const predefinedRoles = [
     'admin',
@@ -321,11 +324,6 @@ const Utilizadores = () => {
     'gestor de empresas',
     'cadastrador',
   ];
-
-  useEffect(() => {
-    fetchUsers();
-    fetchRoles();
-  }, []);
 
   const generateDefaultEmail = (name) => {
     if (!name) return '';
@@ -342,7 +340,7 @@ const Utilizadores = () => {
   e.preventDefault();
   
   if (rolesSelecionadas.length === 0) {
-    alert('Selecione pelo menos uma função para o usuário');
+    setFeedback({ type: 'warning', text: 'Selecione pelo menos uma função para o utilizador.' });
     return;
   }
 
@@ -353,35 +351,29 @@ const Utilizadores = () => {
     const emailExists = Object.values(usersData).some(u => u.email === email);
     
     if (emailExists) {
-      alert('Este email já está cadastrado');
+      setFeedback({ type: 'warning', text: 'Este email já está cadastrado.' });
       return;
     }
-    const password = '@Connection2024'; 
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    
-    const newUser = {
-      uid: userCredential.user.uid,
+    await provisionUserAccount(email, {
       name,
       email,
       roles: rolesSelecionadas,
       date: new Date().toISOString(),
       blocked: false,
-      mustChangePassword: true 
-    };
-
-    await set(ref(db, `utilizadores/${userCredential.user.uid}`), newUser);
+      mustChangePassword: false
+    });
     setName('');
     setEmail('');
     setRolesSelecionadas([]);
 
-    alert(`Usuário cadastrado com sucesso! Senha inicial: ${password}`);
+    setFeedback({ type: 'success', text: 'Utilizador cadastrado. Foi enviado um email para definir a senha.' });
 
     fetchUsers();
 
   } catch (error) {
 
     console.error('Erro ao cadastrar:', error);
-    alert(`Erro ao cadastrar usuário: ${error.message}`);
+    setFeedback({ type: 'error', text: `Não foi possível cadastrar o utilizador: ${error.message}` });
 
   }
 };
@@ -440,13 +432,17 @@ const Utilizadores = () => {
         // Atualizar a role em todos os utilizadores que a tinham
         const updates = {};
         users.forEach(user => {
-          if (user.role === oldRole) {
-            updates[`utilizadores/${user.id}/role`] = newRole;
+          const userRoles = normalizeRoles(user);
+          if (userRoles.includes(oldRole)) {
+            updates[`utilizadores/${user.id}/roles`] = userRoles.map(role =>
+              role === oldRole ? newRole : role
+            );
+            updates[`utilizadores/${user.id}/role`] = null;
           }
         });
         
         if (Object.keys(updates).length > 0) {
-          await set(ref(db), updates);
+          await update(ref(db), updates);
         }
         
         setRoles(updatedRoles);
@@ -458,13 +454,12 @@ const Utilizadores = () => {
   };
 
   const handleDeleteRole = async (roleToDelete) => {
-    if (window.confirm(`Tem certeza que deseja excluir a role "${roleToDelete}"? Esta ação não pode ser desfeita.`)) {
-      try {
+    try {
         // Verificar se a role está em uso
-        const isRoleInUse = users.some(user => user.role === roleToDelete);
+        const isRoleInUse = users.some(user => normalizeRoles(user).includes(roleToDelete));
         
         if (isRoleInUse) {
-          alert('Esta role está em uso por um ou mais utilizadores e não pode ser removida.');
+          setFeedback({ type: 'warning', text: 'Esta função está atribuída a um ou mais utilizadores e não pode ser removida.' });
           return;
         }
         
@@ -472,55 +467,79 @@ const Utilizadores = () => {
         const updatedRoles = roles.filter(r => r !== roleToDelete);
         await set(ref(db, 'roles'), updatedRoles);
         setRoles(updatedRoles);
+        setFeedback({ type: 'success', text: `A função “${roleToDelete}” foi removida.` });
       } catch (error) {
         console.error('Erro ao excluir role:', error);
+        setFeedback({ type: 'error', text: 'Não foi possível remover a função.' });
       }
-    }
   };
+
+  useEffect(() => {
+    fetchUsers();
+    fetchRoles();
+    // Initial snapshot only; subsequent refreshes happen after mutations.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleUpdateUser = async (userId, updatedData) => {
     try {
-      await set(ref(db, `utilizadores/${userId}`), {
+      await update(ref(db, `utilizadores/${userId}`), {
         ...updatedData,
-        date: new Date().toISOString(),
+        roles: normalizeRoles(updatedData),
+        role: null,
+        updatedAt: new Date().toISOString(),
       });
       fetchUsers();
+      setFeedback({ type: 'success', text: 'Os dados do utilizador foram atualizados.' });
     } catch (error) {
       console.error('Erro ao atualizar utilizador:', error);
+      setFeedback({ type: 'error', text: 'Não foi possível atualizar o utilizador.' });
     }
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Tem certeza que deseja excluir este utilizador?')) {
-      try {
+    if (id === auth.currentUser?.uid) {
+      setFeedback({ type: 'warning', text: 'Não é possível eliminar a conta atualmente autenticada.' });
+      return;
+    }
+    try {
         await remove(ref(db, `utilizadores/${id}`));
         fetchUsers();
+        setSelectedUser(null);
+        setFeedback({ type: 'success', text: 'O registo do utilizador foi eliminado.' });
       } catch (error) {
         console.error('Erro ao excluir utilizador:', error);
+        setFeedback({ type: 'error', text: 'Não foi possível eliminar o utilizador.' });
       }
-    }
   };
 
   const handleBlock = async (id, blocked) => {
+    if (id === auth.currentUser?.uid) {
+      setFeedback({ type: 'warning', text: 'Não é possível bloquear a conta atualmente autenticada.' });
+      return;
+    }
     try {
       await set(ref(db, `utilizadores/${id}/blocked`), blocked);
       fetchUsers();
       setSelectedUser(null);
+      setFeedback({ type: 'success', text: blocked ? 'O utilizador foi bloqueado.' : 'O utilizador foi desbloqueado.' });
     } catch (error) {
       console.error('Erro ao bloquear/desbloquear utilizador:', error);
+      setFeedback({ type: 'error', text: 'Não foi possível alterar o estado do utilizador.' });
     }
   };
 
   const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchTerm.toLowerCase())
+    (user.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (user.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    normalizeRoles(user).some(role => role.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
-    <div className="container mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Gestão de Utilizadores</h1>
-      <div className="flex border-b mb-6">
+    <AdminPage>
+      <AdminPageHeader title="Equipa e permissões" description="Crie acessos administrativos e controle as funções atribuídas a cada utilizador." />
+      {feedback && <InlineAlert type={feedback.type} onClose={() => setFeedback(null)}>{feedback.text}</InlineAlert>}
+      <div className="flex overflow-x-auto border-b border-gray-200" role="tablist" aria-label="Gestão da equipa">
         <button
           className={`px-4 py-2 text-lg font-semibold ${activeTab === 'register' ? 'border-b-2 border-blue-500 text-blue-500' : 'text-gray-500 hover:text-gray-700'}`}
           onClick={() => setActiveTab('register')}>
@@ -625,7 +644,7 @@ const Utilizadores = () => {
                     <tr key={user.id} className={user.blocked ? 'bg-red-50' : 'hover:bg-gray-50'}>
                       <td className="py-3 px-4 border-b border-gray-200">{user.name}</td>
                       <td className="py-3 px-4 border-b border-gray-200">{user.email}</td>
-                      <td className="py-3 px-4 border-b border-gray-200">{user.role}</td>
+                      <td className="py-3 px-4 border-b border-gray-200">{normalizeRoles(user).join(', ') || 'Sem função'}</td>
                       <td className="py-3 px-4 border-b border-gray-200">
                         <span className={`px-2 py-1 text-xs rounded-full ${user.blocked ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
                           {user.blocked ? 'Bloqueado' : 'Ativo'}
@@ -646,7 +665,7 @@ const Utilizadores = () => {
                             Editar
                           </button>
                           <button
-                            onClick={() => handleDelete(user.id)}
+                            onClick={() => setConfirmation({ open: true, type: 'user', id: user.id, label: user.name || user.email })}
                             className="text-white bg-red-500 px-3 py-1 rounded hover:bg-red-600"
                           >
                             Excluir
@@ -684,7 +703,7 @@ const Utilizadores = () => {
                       </svg>
                     </button>
                     <button
-                      onClick={() => handleDeleteRole(role)}
+                      onClick={() => setConfirmation({ open: true, type: 'role', id: role, label: role })}
                       className="text-red-500 hover:text-red-700"
                       title="Remover role"
                     >
@@ -723,7 +742,7 @@ const Utilizadores = () => {
           user={selectedUser} 
           onClose={() => setSelectedUser(null)} 
           onBlock={handleBlock}
-          onDelete={handleDelete}
+          onDelete={(id) => setConfirmation({ open: true, type: 'user', id, label: selectedUser.name || selectedUser.email })}
           onEdit={(user) => {
             setSelectedUser(null);
             setEditingUser(user);
@@ -747,7 +766,21 @@ const Utilizadores = () => {
           onSave={handleUpdateRole}
         />
       )}
-    </div>
+      <ConfirmDialog
+        open={confirmation.open}
+        title={confirmation.type === 'role' ? 'Remover função?' : 'Eliminar utilizador?'}
+        description={confirmation.type === 'role' ? `A função “${confirmation.label}” será removida se não estiver em uso.` : `O registo de “${confirmation.label}” será eliminado da base de dados administrativa.`}
+        confirmLabel="Eliminar"
+        danger
+        onCancel={() => setConfirmation({ open: false, type: null, id: null, label: '' })}
+        onConfirm={async () => {
+          const pending = confirmation;
+          setConfirmation({ open: false, type: null, id: null, label: '' });
+          if (pending.type === 'role') await handleDeleteRole(pending.id);
+          if (pending.type === 'user') await handleDelete(pending.id);
+        }}
+      />
+    </AdminPage>
   );
 };
 
