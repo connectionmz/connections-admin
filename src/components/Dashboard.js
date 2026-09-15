@@ -294,6 +294,8 @@ const Dashboard = () => {
 const unsubscribe = onValue(empresasRef, (snapshot) => {
   try {
     const data = snapshot.val();
+
+    console.log('Dados das empresas recebidos:', data);
     let empresasArray = [];
 
     if (data) {
@@ -301,7 +303,7 @@ const unsubscribe = onValue(empresasRef, (snapshot) => {
         empresa.type !== 'singular'
       );
     }
-
+    
     setEmpresas(empresasArray);
     setFilteredEmpresas(empresasArray);
     calcularEstatisticas(empresasArray);
@@ -337,6 +339,7 @@ const unsubscribe = onValue(empresasRef, (snapshot) => {
     const total = empresas.length;
     const porProvincia = {};
     const porSetor = {};
+
 
     empresas.forEach(emp => {
       const provincia = emp.provincia || 'Não especificado';

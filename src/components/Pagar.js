@@ -4,13 +4,62 @@ import { db } from '../fb';
 import { 
   FaSearch, FaTrash, FaCheck, FaTimes, FaFileAlt, FaBuilding, 
   FaPhone, FaEnvelope, FaUser, FaCalendarAlt, FaMoneyBillWave, 
-  FaFileInvoice, FaSms, FaStore, FaIdCard, FaClock, FaExchangeAlt,
-  FaGift, FaChartBar, FaFileCsv, FaFilter
+  FaSms, FaStore, FaIdCard, FaClock,
+  FaGift, FaChartBar, FaFileCsv, FaBolt, FaBan
 } from 'react-icons/fa';
 import moment from 'moment';
 import 'moment/locale/pt';
 
 moment.locale('pt');
+
+// ────────────────────────────────────────────────────────────────
+// Módulos disponíveis hoje (mantido em sincronia com ModuleGrid.jsx)
+// ────────────────────────────────────────────────────────────────
+const MODULOS_DISPONIVEIS = {
+  moduloMarket: { label: 'Mercado (Produtos & Serviços)', icon: <FaStore className="text-purple-500" /> },
+  moduloSMS: { label: 'Cotações', icon: <FaSms className="text-green-500" /> },
+};
+
+const DIAS_POR_VALIDADE = {
+  Mensal: 30,
+  Anual: 365,
+};
+
+/**
+ * Grava a ativação de um módulo diretamente na empresa — este é o node que
+ * o app (via ActiveModulesContext) e o ModuleGrid realmente leem para
+ * liberar/bloquear acesso. Aprovar um pagamento ou ativar um trial aqui
+ * só tem efeito real se isto for chamado.
+ */
+const ativarModuloNaEmpresa = async ({ companyId, moduleKey, moduleName, expiresAt, origem }) => {
+  if (!companyId || !moduleKey) {
+    throw new Error('companyId e moduleKey são obrigatórios para ativar um módulo.');
+  }
+  await update(ref(db, `company/${companyId}/activeModules/${moduleKey}`), {
+    status: 'active',
+    moduleName: moduleName || MODULOS_DISPONIVEIS[moduleKey]?.label || moduleKey,
+    expiresAt,
+    paidAt: Date.now(),
+    origem: origem || 'manual', // 'pagamento' | 'trial' | 'manual'
+  });
+};
+
+/**
+ * Contraparte da ativação: remove o módulo de company/{id}/activeModules.
+ * Reflete imediatamente no ModuleGrid e em qualquer rota protegida, pois
+ * ambos leem o mesmo node via ActiveModulesContext.
+ *
+ * Atenção: isto remove o módulo incondicionalmente. Se a mesma empresa
+ * tiver ganho o mesmo módulo por mais de uma via (ex: pagamento + trial
+ * simultâneos), revogar por um dos registros derruba o acesso mesmo que
+ * o outro ainda devesse valer. Para este produto, com um único módulo
+ * de cotações/mercado por empresa, isso não costuma ser um problema na
+ * prática — mas vale ter em mente se o modelo crescer.
+ */
+const revogarModuloDaEmpresa = async ({ companyId, moduleKey }) => {
+  if (!companyId || !moduleKey) return;
+  await remove(ref(db, `company/${companyId}/activeModules/${moduleKey}`));
+};
 
 const Pagar = ({ user }) => {
   const [loading, setLoading] = useState(false);
@@ -27,6 +76,7 @@ const Pagar = ({ user }) => {
   const [endDate, setEndDate] = useState('');
   const [viewMode, setViewMode] = useState('payments');
   const [selectedItem, setSelectedItem] = useState(null);
+  const [feedback, setFeedback] = useState(null); // { message, type: 'success' | 'error' }
   const [stats, setStats] = useState({
     totalPayments: 0,
     paidAmount: 0,
@@ -71,6 +121,8 @@ const Pagar = ({ user }) => {
       }
     });
 
+    // Nota: `subscriptions` deixou de ser lido pelo app (ver ActiveModulesContext.jsx).
+    // Mantido aqui só para estatística histórica; não é mais escrito por este componente.
     const unsubscribeSubscriptions = onValue(subscriptionsRef, (snapshot) => {
       const data = snapshot.val();
       setSubscriptions(data || {});
@@ -84,7 +136,6 @@ const Pagar = ({ user }) => {
   }, []);
 
   useEffect(() => {
-    // Compute stats
     const now = Date.now();
     const paidAmount = payments.reduce((sum, p) => sum + (p.status === 'pago' ? parseFloat(p.amount || 0) : 0), 0);
     const pendingCount = payments.filter(p => p.status === 'pendente').length;
@@ -110,24 +161,20 @@ const Pagar = ({ user }) => {
   useEffect(() => {
     let result = payments;
     
-    // Filtro por status
     if (selectedStatus !== 'todos') {
       result = result.filter(payment => payment.status === selectedStatus);
     }
     
-    // Filtro por módulo
     if (selectedModule !== 'todos') {
       result = result.filter(payment => payment.moduleKey === selectedModule);
     }
     
-    // Filtro por validade
     if (selectedValidade !== 'todos') {
       result = result.filter(payment => 
         payment.subscription?.validade?.toLowerCase() === selectedValidade.toLowerCase()
       );
     }
 
-    // Filtro por data
     if (startDate) {
       const start = new Date(startDate).getTime();
       result = result.filter(p => p.timestamp >= start);
@@ -137,7 +184,6 @@ const Pagar = ({ user }) => {
       result = result.filter(p => p.timestamp <= end);
     }
     
-    // Filtro por termo de pesquisa
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(payment => 
@@ -158,17 +204,14 @@ const Pagar = ({ user }) => {
   useEffect(() => {
     let result = trials;
 
-    // Filtro por status for trials
     if (selectedStatus !== 'todos') {
       result = result.filter(trial => trial.status === selectedStatus);
     }
 
-    // Filtro por módulo
     if (selectedModule !== 'todos') {
       result = result.filter(trial => trial.moduleKey === selectedModule);
     }
 
-    // Filtro por data
     if (startDate) {
       const start = new Date(startDate).getTime();
       result = result.filter(t => t.createdAt >= start);
@@ -178,7 +221,6 @@ const Pagar = ({ user }) => {
       result = result.filter(t => t.createdAt <= end);
     }
 
-    // Filtro por termo de pesquisa
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(trial => 
@@ -191,77 +233,183 @@ const Pagar = ({ user }) => {
     setFilteredTrials(result);
   }, [trials, searchTerm, selectedStatus, selectedModule, startDate, endDate]);
 
-  const updatePaymentStatus = async (paymentId, newStatus) => {
+  const showFeedback = (message, type = 'success') => {
+    setFeedback({ message, type });
+    setTimeout(() => setFeedback(null), 4000);
+  };
+
+  /**
+   * Aprovar pagamento agora faz DUAS coisas: atualiza o registro do
+   * pagamento (histórico) E ativa o módulo de verdade na empresa.
+   * Rejeitar só atualiza o registro — não mexe em módulos.
+   */
+  const updatePaymentStatus = async (payment, newStatus) => {
     try {
       setLoading(true);
-      await update(ref(db, `payments/${paymentId}`), {
+
+      await update(ref(db, `payments/${payment.id}`), {
         status: newStatus,
         updatedAt: Date.now()
       });
+
+      if (newStatus === 'pago') {
+        const dias = DIAS_POR_VALIDADE[payment.subscription?.validade] || 30;
+        const expiresAt = Date.now() + dias * 24 * 60 * 60 * 1000;
+
+        await ativarModuloNaEmpresa({
+          companyId: payment.userId,
+          moduleKey: payment.moduleKey,
+          moduleName: payment.moduleName,
+          expiresAt,
+          origem: 'pagamento',
+        });
+
+        showFeedback(`Pagamento aprovado e módulo "${payment.moduleName}" ativado para ${payment.nome || payment.userName}.`);
+      } else {
+        showFeedback('Pagamento atualizado.');
+      }
     } catch (error) {
       console.error('Erro ao atualizar status:', error);
-      alert('Erro ao atualizar status.');
+      showFeedback('Erro ao atualizar status do pagamento.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const deletePayment = async (paymentId) => {
-    if (!window.confirm('Tem certeza que deseja excluir este pagamento permanentemente?')) return;
+  const deletePayment = async (payment) => {
+    const vaiRevogar = payment.status === 'pago';
+    const aviso = vaiRevogar
+      ? `Tem certeza que deseja excluir este pagamento? Isto TAMBÉM vai revogar o módulo "${payment.moduleName}" da empresa, já que ele foi concedido por este pagamento.`
+      : 'Tem certeza que deseja excluir este pagamento permanentemente?';
+
+    if (!window.confirm(aviso)) return;
     
     try {
       setLoading(true);
-      await remove(ref(db, `payments/${paymentId}`));
+      await remove(ref(db, `payments/${payment.id}`));
+
+      if (vaiRevogar) {
+        await revogarModuloDaEmpresa({ companyId: payment.userId, moduleKey: payment.moduleKey });
+        showFeedback(`Pagamento excluído e módulo "${payment.moduleName}" revogado.`);
+      }
+
       setSelectedItem(null);
     } catch (error) {
       console.error('Erro ao excluir pagamento:', error);
-      alert('Erro ao excluir pagamento.');
+      showFeedback('Erro ao excluir pagamento.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const updateTrialStatus = async (trialId, newStatus) => {
+  /**
+   * Revoga o acesso concedido por um pagamento já aprovado, sem apagar
+   * o registro do pagamento (mantém o histórico, útil para estorno,
+   * cancelamento do cliente, etc).
+   */
+  const revokePayment = async (payment) => {
+    if (!window.confirm(`Revogar o módulo "${payment.moduleName}" desta empresa? O registro do pagamento continua no histórico, marcado como revogado.`)) return;
+
     try {
       setLoading(true);
-      await update(ref(db, `trials/${trialId}`), {
+      await update(ref(db, `payments/${payment.id}`), {
+        status: 'revogado',
+        updatedAt: Date.now()
+      });
+      await revogarModuloDaEmpresa({ companyId: payment.userId, moduleKey: payment.moduleKey });
+      showFeedback(`Módulo "${payment.moduleName}" revogado de ${payment.nome || payment.userName}.`);
+    } catch (error) {
+      console.error('Erro ao revogar módulo:', error);
+      showFeedback('Erro ao revogar módulo.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Ativar um trial agora também grava o módulo de verdade na empresa,
+   * com expiração igual ao endDate do trial.
+   */
+  const updateTrialStatus = async (trial, newStatus) => {
+    try {
+      setLoading(true);
+      await update(ref(db, `trials/${trial.id}`), {
         status: newStatus,
         updatedAt: Date.now()
       });
+
+      if (newStatus === 'active') {
+        await ativarModuloNaEmpresa({
+          companyId: trial.companyId,
+          moduleKey: trial.moduleKey,
+          moduleName: trial.moduleName,
+          expiresAt: trial.endDate,
+          origem: 'trial',
+        });
+
+        showFeedback(`Trial ativado — módulo "${trial.moduleName}" liberado para ${trial.companyName} até ${moment(trial.endDate).format('LL')}.`);
+      } else {
+        showFeedback('Trial atualizado.');
+      }
     } catch (error) {
       console.error('Erro ao atualizar status do trial:', error);
-      alert('Erro ao atualizar status do trial.');
+      showFeedback('Erro ao atualizar status do trial.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const deleteTrial = async (trialId) => {
-    if (!window.confirm('Tem certeza que deseja excluir este trial permanentemente?')) return;
+  const deleteTrial = async (trial) => {
+    const vaiRevogar = trial.status === 'active';
+    const aviso = vaiRevogar
+      ? `Tem certeza que deseja excluir este trial? Isto TAMBÉM vai revogar o módulo "${trial.moduleName}" da empresa, já que ele foi concedido por este trial.`
+      : 'Tem certeza que deseja excluir este trial permanentemente?';
+
+    if (!window.confirm(aviso)) return;
     
     try {
       setLoading(true);
-      await remove(ref(db, `trials/${trialId}`));
+      await remove(ref(db, `trials/${trial.id}`));
+
+      if (vaiRevogar) {
+        await revogarModuloDaEmpresa({ companyId: trial.companyId, moduleKey: trial.moduleKey });
+        showFeedback(`Trial excluído e módulo "${trial.moduleName}" revogado.`);
+      }
+
       setSelectedItem(null);
     } catch (error) {
       console.error('Erro ao excluir trial:', error);
-      alert('Erro ao excluir trial.');
+      showFeedback('Erro ao excluir trial.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Revoga o acesso concedido por um trial já ativo, sem apagar o
+   * registro do trial (mantém o histórico).
+   */
+  const revokeTrial = async (trial) => {
+    if (!window.confirm(`Revogar o módulo "${trial.moduleName}" desta empresa? O registro do trial continua no histórico, marcado como revogado.`)) return;
+
+    try {
+      setLoading(true);
+      await update(ref(db, `trials/${trial.id}`), {
+        status: 'revogado',
+        updatedAt: Date.now()
+      });
+      await revogarModuloDaEmpresa({ companyId: trial.companyId, moduleKey: trial.moduleKey });
+      showFeedback(`Módulo "${trial.moduleName}" revogado de ${trial.companyName}.`);
+    } catch (error) {
+      console.error('Erro ao revogar módulo:', error);
+      showFeedback('Erro ao revogar módulo.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const getModuleIcon = (moduleKey) => {
-    switch(moduleKey) {
-      case 'moduloProforma':
-        return <FaFileInvoice className="text-blue-500" />;
-      case 'moduloSMS':
-        return <FaSms className="text-green-500" />;
-      case 'moduloMarket':
-        return <FaStore className="text-purple-500" />;
-      default:
-        return <FaFileAlt className="text-gray-500" />;
-    }
+    return MODULOS_DISPONIVEIS[moduleKey]?.icon || <FaFileAlt className="text-gray-500" />;
   };
 
   const getStatusBadge = (status) => {
@@ -272,6 +420,7 @@ const Pagar = ({ user }) => {
       case 'pendente':
         return 'bg-yellow-100 text-yellow-800';
       case 'rejeitado':
+      case 'revogado':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -288,6 +437,8 @@ const Pagar = ({ user }) => {
         return 'Rejeitado';
       case 'active':
         return 'Ativo';
+      case 'revogado':
+        return 'Revogado';
       default:
         return status;
     }
@@ -350,7 +501,21 @@ const Pagar = ({ user }) => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-8">Gestão de Pagamentos e Trials</h1>
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-3xl font-bold text-gray-800">Gestão de Módulos</h1>
+        </div>
+        <p className="text-sm text-gray-500 mb-8 flex items-center">
+          <FaBolt className="mr-2 text-orange-400" />
+          Aprovar um pagamento ou ativar um trial aqui grava direto em <code className="mx-1 bg-gray-100 px-1 rounded">company/&#123;id&#125;/activeModules</code> — a mesma fonte que o app usa para liberar ou bloquear cada módulo.
+        </p>
+
+        {feedback && (
+          <div className={`mb-6 px-4 py-3 rounded-lg text-sm font-medium ${
+            feedback.type === 'error' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+          }`}>
+            {feedback.message}
+          </div>
+        )}
         
         {/* Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -384,8 +549,8 @@ const Pagar = ({ user }) => {
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Subscrições Ativas</p>
-                <p className="text-2xl font-bold">{stats.activeSubscriptions}</p>
+                <p className="text-sm text-gray-500">Pendentes de Aprovação</p>
+                <p className="text-2xl font-bold">{stats.pendingCount}</p>
               </div>
               <FaCalendarAlt className="text-orange-500 text-3xl" />
             </div>
@@ -434,10 +599,12 @@ const Pagar = ({ user }) => {
                   <option value="pago">Pagos</option>
                   <option value="pendente">Pendentes</option>
                   <option value="rejeitado">Rejeitados</option>
+                  <option value="revogado">Revogados</option>
                 </>
               ) : (
                 <>
                   <option value="active">Ativos</option>
+                  <option value="revogado">Revogados</option>
                 </>
               )}
             </select>
@@ -447,9 +614,9 @@ const Pagar = ({ user }) => {
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="todos">Todos Módulos</option>
-              <option value="moduloProforma">Proforma</option>
-              <option value="moduloSMS">SMS</option>
-              <option value="moduloMarket">Market</option>
+              {Object.entries(MODULOS_DISPONIVEIS).map(([key, mod]) => (
+                <option key={key} value={key}>{mod.label}</option>
+              ))}
             </select>
             {viewMode === 'payments' && (
               <select
@@ -534,27 +701,40 @@ const Pagar = ({ user }) => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex space-x-2" onClick={e => e.stopPropagation()}>
-                          {payment.status !== 'pago' && (
+                          {payment.status !== 'pago' && payment.status !== 'revogado' && (
                             <>
                               <button 
-                                onClick={() => updatePaymentStatus(payment.id, 'pago')}
+                                onClick={() => updatePaymentStatus(payment, 'pago')}
                                 className="text-green-600 hover:text-green-800"
+                                title="Aprovar e ativar módulo"
                                 disabled={loading}
                               >
                                 <FaCheck />
                               </button>
                               <button 
-                                onClick={() => updatePaymentStatus(payment.id, 'rejeitado')}
+                                onClick={() => updatePaymentStatus(payment, 'rejeitado')}
                                 className="text-red-600 hover:text-red-800"
+                                title="Rejeitar"
                                 disabled={loading}
                               >
                                 <FaTimes />
                               </button>
                             </>
                           )}
+                          {payment.status === 'pago' && (
+                            <button 
+                              onClick={() => revokePayment(payment)}
+                              className="text-orange-600 hover:text-orange-800"
+                              title="Revogar módulo (mantém o histórico)"
+                              disabled={loading}
+                            >
+                              <FaBan />
+                            </button>
+                          )}
                           <button 
-                            onClick={() => deletePayment(payment.id)}
+                            onClick={() => deletePayment(payment)}
                             className="text-gray-600 hover:text-gray-800"
+                            title="Excluir registo"
                             disabled={loading}
                           >
                             <FaTrash />
@@ -586,9 +766,30 @@ const Pagar = ({ user }) => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex space-x-2" onClick={e => e.stopPropagation()}>
+                          {trial.status !== 'active' && trial.status !== 'revogado' && (
+                            <button 
+                              onClick={() => updateTrialStatus(trial, 'active')}
+                              className="text-green-600 hover:text-green-800"
+                              title="Ativar trial e módulo"
+                              disabled={loading}
+                            >
+                              <FaCheck />
+                            </button>
+                          )}
+                          {trial.status === 'active' && (
+                            <button 
+                              onClick={() => revokeTrial(trial)}
+                              className="text-orange-600 hover:text-orange-800"
+                              title="Revogar módulo (mantém o histórico)"
+                              disabled={loading}
+                            >
+                              <FaBan />
+                            </button>
+                          )}
                           <button 
-                            onClick={() => deleteTrial(trial.id)}
+                            onClick={() => deleteTrial(trial)}
                             className="text-gray-600 hover:text-gray-800"
+                            title="Excluir registo"
                             disabled={loading}
                           >
                             <FaTrash />
@@ -689,6 +890,10 @@ const Pagar = ({ user }) => {
                           <p className="text-sm text-gray-500">Referência</p>
                           <p className="font-medium">{selectedItem.referencia || 'Não informada'}</p>
                         </div>
+                        <div>
+                          <p className="text-sm text-gray-500">Validade</p>
+                          <p className="font-medium">{selectedItem.subscription?.validade || 'Não informada'}</p>
+                        </div>
                       </>
                     ) : (
                       <>
@@ -718,38 +923,22 @@ const Pagar = ({ user }) => {
                 </div>
               </div>
 
-              {selectedItem.type === 'payment' && selectedItem.mpesaResponse && (
-                <div className="bg-gray-50 p-4 rounded-lg mb-6">
-                  <h4 className="font-semibold text-lg text-gray-700 mb-3">Detalhes M-Pesa</h4>
-                  {/* ... similar to original ... */}
-                </div>
-              )}
-
-              {selectedItem.type === 'payment' && selectedItem.subscription && (
-                <div className="bg-gray-50 p-4 rounded-lg mb-6">
-                  <h4 className="font-semibold text-lg text-gray-700 mb-3 flex items-center">
-                    <FaCalendarAlt className="mr-2" /> Informações da Subscrição
-                  </h4>
-                  {/* ... similar to original ... */}
-                </div>
-              )}
-
               <div className="mt-6 flex justify-end space-x-3">
-                {selectedItem.type === 'payment' && selectedItem.status !== 'pago' && (
+                {selectedItem.type === 'payment' && selectedItem.status !== 'pago' && selectedItem.status !== 'revogado' && (
                   <>
                     <button
                       onClick={() => {
-                        updatePaymentStatus(selectedItem.id, 'pago');
+                        updatePaymentStatus(selectedItem, 'pago');
                         closeDetails();
                       }}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center"
                       disabled={loading}
                     >
-                      <FaCheck className="mr-2" /> Marcar como Pago
+                      <FaCheck className="mr-2" /> Aprovar e Ativar Módulo
                     </button>
                     <button
                       onClick={() => {
-                        updatePaymentStatus(selectedItem.id, 'rejeitado');
+                        updatePaymentStatus(selectedItem, 'rejeitado');
                         closeDetails();
                       }}
                       className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center"
@@ -759,12 +948,48 @@ const Pagar = ({ user }) => {
                     </button>
                   </>
                 )}
+                {selectedItem.type === 'payment' && selectedItem.status === 'pago' && (
+                  <button
+                    onClick={() => {
+                      revokePayment(selectedItem);
+                      closeDetails();
+                    }}
+                    className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 flex items-center"
+                    disabled={loading}
+                  >
+                    <FaBan className="mr-2" /> Revogar Módulo
+                  </button>
+                )}
+                {selectedItem.type === 'trial' && selectedItem.status !== 'active' && selectedItem.status !== 'revogado' && (
+                  <button
+                    onClick={() => {
+                      updateTrialStatus(selectedItem, 'active');
+                      closeDetails();
+                    }}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center"
+                    disabled={loading}
+                  >
+                    <FaCheck className="mr-2" /> Ativar Trial e Módulo
+                  </button>
+                )}
+                {selectedItem.type === 'trial' && selectedItem.status === 'active' && (
+                  <button
+                    onClick={() => {
+                      revokeTrial(selectedItem);
+                      closeDetails();
+                    }}
+                    className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 flex items-center"
+                    disabled={loading}
+                  >
+                    <FaBan className="mr-2" /> Revogar Módulo
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     if (selectedItem.type === 'payment') {
-                      deletePayment(selectedItem.id);
+                      deletePayment(selectedItem);
                     } else {
-                      deleteTrial(selectedItem.id);
+                      deleteTrial(selectedItem);
                     }
                     closeDetails();
                   }}

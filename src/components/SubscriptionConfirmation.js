@@ -16,26 +16,29 @@ import {
   FaFilter,
   FaMapMarkerAlt,
   FaIndustry,
-  FaEye,
-  FaEyeSlash,
   FaCreditCard,
   FaStore,
   FaBox,
   FaMoneyBillWave,
   FaCalendarAlt,
   FaGift,
-  FaClock,
-  FaCrown,
-  FaStar
+  FaClock
 } from 'react-icons/fa';
 import sendEmail from './utils/sendMail';
 
+/**
+ * Este é o componente que REALMENTE concede acesso a módulos.
+ * Grava diretamente em company/{id}/activeModules/{moduleKey} — o mesmo
+ * node que o app lê via ActiveModulesContext (ModuleGrid, rotas
+ * protegidas, etc). payments/ e trials/ continuam sendo criados só como
+ * histórico para o painel de contabilidade (Pagar.jsx), que não ativa
+ * nada por conta própria.
+ */
 const SubscriptionConfirmation = ({ user }) => {
   const [companies, setCompanies] = useState([]);
   const [selectedCompanies, setSelectedCompanies] = useState([]);
   const [modules, setModules] = useState([]);
   const [cart, setCart] = useState([]);
-  const [subscriptions, setSubscriptions] = useState({});
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -47,15 +50,14 @@ const SubscriptionConfirmation = ({ user }) => {
   const [sectors, setSectors] = useState([]);
   const [selectedProvince, setSelectedProvince] = useState('');
   const [selectedSector, setSelectedSector] = useState('');
-  const [showFilters, setShowFilters] = useState(true);
-  
+
   const navigate = useNavigate();
 
-  // Load companies, modules, subscriptions, provinces and sectors
+  // Load companies (já vem com activeModules embutido, pois é
+  // company/{id}/activeModules), modules, provinces and sectors.
   useEffect(() => {
     const companiesRef = ref(db, 'company');
     const modulesRef = ref(db, 'modules/modulos');
-    const subscriptionsRef = ref(db, 'subscriptions');
     const provinciasRef = ref(db, 'provincias');
     const sectoresRef = ref(db, 'sectores_de_atividade');
 
@@ -74,10 +76,6 @@ const SubscriptionConfirmation = ({ user }) => {
         key,
         ...data[key]
       })) : []);
-    });
-
-    const unsubscribeSubscriptions = onValue(subscriptionsRef, (snapshot) => {
-      setSubscriptions(snapshot.val() || {});
     });
 
     const unsubscribeProvinces = onValue(provinciasRef, (snapshot) => {
@@ -101,32 +99,29 @@ const SubscriptionConfirmation = ({ user }) => {
     return () => {
       unsubscribeCompanies();
       unsubscribeModules();
-      unsubscribeSubscriptions();
       unsubscribeProvinces();
       unsubscribeSectors();
     };
   }, []);
 
-  // Check if company already has the module active
+  // Fonte da verdade: company.activeModules, já embutido no próprio
+  // registo da empresa (company/{id}/activeModules).
   const companyHasModule = (companyId, moduleKey) => {
-    if (!subscriptions[companyId] || !subscriptions[companyId][moduleKey]) {
-      return false;
-    }
-    
-    const subscription = subscriptions[companyId][moduleKey];
+    const company = companies.find(c => c.id === companyId);
+    const moduleData = company?.activeModules?.[moduleKey];
+    if (!moduleData) return false;
+
     const now = Date.now();
-    
-    return subscription.isActive && subscription.end > now;
+    return moduleData.status === 'active' && (!moduleData.expiresAt || moduleData.expiresAt > now);
   };
 
-  // Check if company already has trial for this module
+  // Trial é identificado pelo campo `origem: 'trial'` gravado na ativação.
   const companyHasTrial = (companyId, moduleKey) => {
-    if (!subscriptions[companyId] || !subscriptions[companyId][moduleKey]) {
-      return false;
-    }
-    
-    const subscription = subscriptions[companyId][moduleKey];
-    return subscription.subscriptionType === 'trial';
+    const company = companies.find(c => c.id === companyId);
+    const moduleData = company?.activeModules?.[moduleKey];
+    if (!moduleData) return false;
+
+    return moduleData.origem === 'trial';
   };
 
   // Toggle company selection
@@ -143,30 +138,6 @@ const SubscriptionConfirmation = ({ user }) => {
 
   const selectAllFilteredCompanies = () => {
     setSelectedCompanies(filteredCompanies.map(company => company.id));
-  };
-
-  const selectCompaniesByFilter = (filterType, value) => {
-    let companiesToSelect = [];
-    
-    switch (filterType) {
-      case 'province':
-        companiesToSelect = companies
-          .filter(company => company.province === value)
-          .map(company => company.id);
-        break;
-      case 'sector':
-        companiesToSelect = companies
-          .filter(company => company.sector === value)
-          .map(company => company.id);
-        break;
-      case 'all':
-        companiesToSelect = companies.map(company => company.id);
-        break;
-      default:
-        return;
-    }
-    
-    setSelectedCompanies(companiesToSelect);
   };
 
   const deselectAllCompanies = () => {
@@ -217,7 +188,6 @@ const SubscriptionConfirmation = ({ user }) => {
       return;
     }
 
-    // Check if any selected company already has this module
     const companiesWithExisting = selectedCompanies.filter(companyId => 
       subscriptionType === 'paid' ? companyHasModule(companyId, module.key) : companyHasTrial(companyId, module.key)
     );
@@ -302,26 +272,22 @@ const SubscriptionConfirmation = ({ user }) => {
     return now + ((durationInMs[validade] || durationInMs.Mensal) * quantity);
   };
 
-  const updateSubscription = async (companyId, item, newPaymentRef, now, subscriptionEnd) => {
-    const subscriptionData = {
-      isActive: true,
-      start: now,
-      end: subscriptionEnd,
-      durationDays: item.subscriptionType === 'trial' ? 7 : (item.validade === 'Anual' ? 365 : 30) * item.quantity,
-      moduleKey: item.moduleKey,
+  /**
+   * Ativa o módulo de verdade na empresa. Isto é o que o ModuleGrid e as
+   * rotas protegidas (via ActiveModulesContext) realmente enxergam.
+   */
+  const ativarModuloNaEmpresa = async (companyId, item, subscriptionEnd, paymentId) => {
+    await update(ref(db, `company/${companyId}/activeModules/${item.moduleKey}`), {
+      status: 'active',
       moduleName: item.moduleName,
-      subscriptionType: item.subscriptionType,
-      paymentId: item.subscriptionType === 'paid' ? newPaymentRef.key : null,
-      validade: item.validade,
-      isTrial: item.subscriptionType === 'trial',
-      trialConverted: false
-    };
-
-    const subscriptionRef = ref(db, `subscriptions/${companyId}/${item.moduleKey}`);
-    await update(subscriptionRef, subscriptionData);
+      expiresAt: subscriptionEnd,
+      paidAt: Date.now(),
+      paymentId: paymentId || null,
+      origem: item.subscriptionType === 'trial' ? 'trial' : 'pagamento',
+    });
   };
 
-const handleConfirmSubscription = async () => {
+  const handleConfirmSubscription = async () => {
     if (selectedCompanies.length === 0) {
       setError('Por favor, selecione pelo menos uma empresa');
       return;
@@ -338,7 +304,8 @@ const handleConfirmSubscription = async () => {
     try {
       const now = Date.now();
 
-      // Verify again if any module is already active for any selected company
+      // Verificação final antes de gravar, contra o estado mais recente
+      // de company.activeModules.
       const companiesWithExistingSubscriptions = [];
       
       selectedCompanies.forEach(companyId => {
@@ -364,10 +331,8 @@ const handleConfirmSubscription = async () => {
         throw new Error(`Algumas empresas já possuem subscrições ativas: ${companiesWithExistingSubscriptions.join(', ')}`);
       }
 
-      // Array to store created subscriptions for email
       const createdSubscriptions = [];
 
-      // Create payments and subscriptions for each company and each item
       for (const companyId of selectedCompanies) {
         const company = companies.find(c => c.id === companyId);
         
@@ -381,7 +346,7 @@ const handleConfirmSubscription = async () => {
         for (const item of cart) {
           const subscriptionEnd = calculateSubscriptionEnd(item.validade, item.subscriptionType, item.quantity);
 
-          // Only create payment record for paid subscriptions
+          // Registo de pagamento — só para histórico/contabilidade (Pagar.jsx).
           let newPaymentRef = null;
           if (item.subscriptionType === 'paid') {
             const companyName = company.nome || `Empresa ${company.id}`;
@@ -413,6 +378,7 @@ const handleConfirmSubscription = async () => {
                 moduleKey: item.moduleKey,
                 moduleName: item.moduleName,
                 subscriptionType: item.subscriptionType,
+                validade: item.validade,
               }
             };
 
@@ -421,10 +387,7 @@ const handleConfirmSubscription = async () => {
             await update(newPaymentRef, paymentData);
           }
 
-          // Update subscription for both paid and trial
-          await updateSubscription(company.id, item, newPaymentRef, now, subscriptionEnd);
-
-          // Create trial record if it's a trial
+          // Registo de trial — também só para histórico/contabilidade.
           if (item.subscriptionType === 'trial') {
             const companyName = company.nome || `Empresa ${company.id}`;
             const trialData = {
@@ -444,7 +407,9 @@ const handleConfirmSubscription = async () => {
             await update(newTrialRef, trialData);
           }
 
-          // Store subscription info for email
+          // ATIVAÇÃO REAL — isto é o que de fato libera o módulo para a empresa.
+          await ativarModuloNaEmpresa(company.id, item, subscriptionEnd, newPaymentRef?.key);
+
           companySubscriptions.push({
             moduleName: item.moduleName,
             moduleKey: item.moduleKey,
@@ -473,11 +438,10 @@ const handleConfirmSubscription = async () => {
           continue;
         }
 
-        // Preparar conteúdo do email
-        const emailSubject = `Confirmação de Subscrição grátis - ${company.nome}`;
+        const emailSubject = `Confirmação de Subscrição - ${company.nome}`;
         
         let emailText = `Prezado(a) ${company.nome},\n\n`;
-        emailText += `Temos o prazer de informar que a Connection Mozambique ativou gratuitamente o(s) seguinte(s) módulo(s):\n\n`;
+        emailText += `Temos o prazer de informar que a Connection Mozambique ativou o(s) seguinte(s) módulo(s):\n\n`;
         
         for (const sub of subscriptionInfo.subscriptions) {
           emailText += `📦 Módulo: ${sub.moduleName}\n`;
@@ -497,17 +461,15 @@ const handleConfirmSubscription = async () => {
         
         emailText += `Para mais informações, por favor contacte o nosso suporte.\n\n`;
         emailText += `Conectando Empresas e Oportunidades
-        Conectando Empresas e Oportunidades
         📞 +258 840237100 | +258 876773180
         📧 suporte@connectionmozambique.com
         🌐 https://connectionmozambique.com`;
 
-        // HTML version
         const emailHtml = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #4F46E5;">Confirmação de Subscrição Grátis</h2>
+            <h2 style="color: #4F46E5;">Confirmação de Subscrição</h2>
             <p>Prezado(a) <strong>${company.nome}</strong>,</p>
-            <p>Temos o prazer de informar que a Connection Mozambique ativou gratuitamente o(s) seguinte(s) módulo(s):</p>
+            <p>Temos o prazer de informar que a Connection Mozambique ativou o(s) seguinte(s) módulo(s):</p>
             
             ${subscriptionInfo.subscriptions.map(sub => `
               <div style="background-color: #f9fafb; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #4F46E5;">
@@ -525,33 +487,20 @@ const handleConfirmSubscription = async () => {
             
             ${notes ? `<p><strong>Observações:</strong> ${notes}</p>` : ''}
             
-           <div style="
-  background:#111827;
-  color:#ffffff;
-  text-align:center;
-  padding:20px;
-">
-            <h3 style="margin:0;">Connection Mozambique</h3>
-            <p style="margin:8px 0;">
-              Conectando Empresas e Oportunidades
-            </p>
-            <p style="margin:5px 0;">
-              📞 +258 840237100 | +258 876773180
-            </p>
-            <p style="margin:5px 0;">
-              📧 suporte@connectionmozambique.com
-            </p>
-            <p style="margin:5px 0;">
-              <a href="https://connectionmozambique.com" style="color:#ffffff;">
-                Connectionmozambique.com
-              </a>
-            </p>
-          </div>
+            <div style="background:#111827; color:#ffffff; text-align:center; padding:20px;">
+              <h3 style="margin:0;">Connection Mozambique</h3>
+              <p style="margin:8px 0;">Conectando Empresas e Oportunidades</p>
+              <p style="margin:5px 0;">📞 +258 840237100 | +258 876773180</p>
+              <p style="margin:5px 0;">📧 suporte@connectionmozambique.com</p>
+              <p style="margin:5px 0;">
+                <a href="https://connectionmozambique.com" style="color:#ffffff;">
+                  Connectionmozambique.com
+                </a>
+              </p>
+            </div>
           </div>
         `;
 
-
-        // Enviar email
         const emailSent = await sendEmail({
           to: companyEmail,
           subject: emailSubject,
@@ -584,7 +533,6 @@ const handleConfirmSubscription = async () => {
     }
   };
 
-  // Stats for dashboard
   const stats = {
     totalCompanies: companies.length,
     selectedCompanies: selectedCompanies.length,
@@ -606,7 +554,7 @@ const handleConfirmSubscription = async () => {
                 Ativação em Massa de Subscrições
               </h1>
               <p className="text-gray-600 text-lg">
-                Gerencie subscrições pagas e trials para múltiplas empresas
+                Concede módulos de verdade às empresas selecionadas (grava em company/activeModules)
               </p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-4 text-center">
@@ -934,7 +882,7 @@ const handleConfirmSubscription = async () => {
                               onClick={() => handleAddToCart(module, 'trial')}
                               disabled={selectedCompanies.length === 0 || companiesWithExistingTrial.length > 0}
                             >
-                              <FaGift className="mr-2"u />
+                              <FaGift className="mr-2" />
                               Adicionar Trial (7 Dias)
                             </button>
                           </div>
@@ -1151,7 +1099,7 @@ const handleConfirmSubscription = async () => {
                   Confirmar Subscrições e Trials
                 </h3>
                 <p className="text-gray-600">
-                  Você está prestes a confirmar subscrições e/ou trials em massa
+                  Você está prestes a ativar módulos de verdade em massa
                 </p>
               </div>
               
@@ -1183,7 +1131,7 @@ const handleConfirmSubscription = async () => {
               </div>
 
               <p className="text-sm text-gray-500 text-center mb-6">
-                Esta ação criará {selectedCompanies.length * cart.length} ativações individuais e não pode ser desfeita.
+                Esta ação ativa {selectedCompanies.length * cart.length} módulo(s) diretamente nas empresas selecionadas e não pode ser desfeita por aqui.
               </p>
 
               <div className="flex space-x-3">
