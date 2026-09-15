@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ref, get, update, remove } from 'firebase/database';
-import { db } from '../fb';
+import { ref, get, update } from 'firebase/database';
+import { auth, db } from '../fb';
+import { getReportPath, MODERATION_STATUS, normalizeModerationStatus } from '../domain/moderation';
+import { AdminPage, AdminPageHeader, ConfirmDialog, EmptyState, InlineAlert, LoadingState } from './admin/ui/AdminUI';
 
 const Denuncias = () => {
   const [denuncias, setDenuncias] = useState([]);
@@ -9,10 +11,13 @@ const Denuncias = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [tipoFilter, setTipoFilter] = useState('todos');
   const [currentPage, setCurrentPage] = useState(1);
+  const [feedback, setFeedback] = useState(null);
+  const [pendingArchive, setPendingArchive] = useState(null);
   const denunciasPerPage = 10;
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return 'Data não disponível';
     return new Intl.DateTimeFormat('pt-BR', {
       day: '2-digit',
       month: '2-digit',
@@ -32,7 +37,7 @@ const Denuncias = () => {
           // Processar denúncias de cotações
           if (snapshot.val().cotacao) {
             Object.entries(snapshot.val().cotacao).forEach(([cotacaoId, denunciasCotacao]) => {
-              Object.values(denunciasCotacao).forEach(userDenuncias => {
+              Object.entries(denunciasCotacao).forEach(([reporterId, userDenuncias]) => {
                 Object.entries(userDenuncias).forEach(([denunciaId, denuncia]) => {
                   denunciasData.push({
                     id: denunciaId,
@@ -40,8 +45,9 @@ const Denuncias = () => {
                     cotacaoId,
                     motivo: denuncia.motivo,
                     timestamp: denuncia.timestamp,
-                    userId: denuncia.userId,
-                    status: denuncia.status || 'pendente'
+                    reporterId,
+                    userId: denuncia.userId || reporterId,
+                    status: normalizeModerationStatus(denuncia.status)
                   });
                 });
               });
@@ -51,7 +57,7 @@ const Denuncias = () => {
           // Processar denúncias de posts
           if (snapshot.val().posts) {
             Object.entries(snapshot.val().posts).forEach(([postId, denunciasPost]) => {
-              Object.values(denunciasPost).forEach(userDenuncias => {
+              Object.entries(denunciasPost).forEach(([reporterId, userDenuncias]) => {
                 Object.entries(userDenuncias).forEach(([denunciaId, denuncia]) => {
                   denunciasData.push({
                     id: denunciaId,
@@ -59,8 +65,9 @@ const Denuncias = () => {
                     postId,
                     motivo: denuncia.motivo,
                     timestamp: denuncia.timestamp,
-                    userId: denuncia.userId,
-                    status: denuncia.status || 'pendente'
+                    reporterId,
+                    userId: denuncia.userId || reporterId,
+                    status: normalizeModerationStatus(denuncia.status)
                   });
                 });
               });
@@ -86,37 +93,47 @@ const Denuncias = () => {
       if (!denuncia) return;
 
       // Construir o caminho correto para atualização
-      const path = `denuncias/${denuncia.tipo}/${denuncia.tipo === 'cotacao' ? denuncia.cotacaoId : denuncia.postId}/${denuncia.userId}/${id}`;
+      const path = getReportPath(denuncia);
+      if (!path) throw new Error('Denúncia sem caminho válido.');
       
       await update(ref(db, path), {
-        status: novoStatus,
-        atualizadoEm: new Date().toISOString()
+        status: normalizeModerationStatus(novoStatus),
+        atualizadoEm: new Date().toISOString(),
+        atualizadoPor: auth.currentUser?.uid || 'admin'
       });
 
       setDenuncias(denuncias.map(d => 
         d.id === id ? {...d, status: novoStatus} : d
       ));
       setSelectedDenuncia(null);
+      setFeedback({ type: 'success', text: 'Estado da denúncia atualizado.' });
     } catch (error) {
       console.error('Erro ao atualizar status:', error);
+      setFeedback({ type: 'error', text: 'Não foi possível atualizar a denúncia.' });
     }
   };
 
   const handleDelete = async (denuncia) => {
-    if (window.confirm('Tem certeza que deseja excluir esta denúncia?')) {
       try {
-        const path = `denuncias/${denuncia.tipo}/${denuncia.tipo === 'cotacao' ? denuncia.cotacaoId : denuncia.postId}/${denuncia.userId}/${denuncia.id}`;
-        await remove(ref(db, path));
-        setDenuncias(denuncias.filter(d => d.id !== denuncia.id));
+        const path = getReportPath(denuncia);
+        if (!path) throw new Error('Denúncia sem caminho válido.');
+        await update(ref(db, path), {
+          status: MODERATION_STATUS.ARCHIVED,
+          arquivadaEm: new Date().toISOString(),
+          arquivadaPor: auth.currentUser?.uid || 'admin'
+        });
+        setDenuncias(current => current.map(item => item.id === denuncia.id ? { ...item, status: MODERATION_STATUS.ARCHIVED } : item));
+        setSelectedDenuncia(null);
+        setFeedback({ type: 'success', text: 'Denúncia arquivada e preservada para auditoria.' });
       } catch (error) {
         console.error('Erro ao excluir denúncia:', error);
+        setFeedback({ type: 'error', text: 'Não foi possível arquivar a denúncia.' });
       }
-    }
   };
 
   const filteredDenuncias = denuncias.filter(denuncia => {
     const matchesSearch = 
-      denuncia.motivo.toLowerCase().includes(searchTerm.toLowerCase());
+      (denuncia.motivo || '').toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesTipo = tipoFilter === 'todos' || denuncia.tipo === tipoFilter;
     
@@ -127,7 +144,7 @@ const Denuncias = () => {
   const indexOfLastDenuncia = currentPage * denunciasPerPage;
   const indexOfFirstDenuncia = indexOfLastDenuncia - denunciasPerPage;
   const currentDenuncias = filteredDenuncias.slice(indexOfFirstDenuncia, indexOfLastDenuncia);
-  const totalPages = Math.ceil(filteredDenuncias.length / denunciasPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredDenuncias.length / denunciasPerPage));
 
   const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
@@ -138,10 +155,10 @@ const Denuncias = () => {
   ];
 
   const statusOptions = [
-    { value: 'pendente', label: 'Pendente' },
-    { value: 'em_analise', label: 'Em Análise' },
-    { value: 'resolvida', label: 'Resolvida' },
-    { value: 'arquivada', label: 'Arquivada' }
+    { value: MODERATION_STATUS.PENDING, label: 'Pendente' },
+    { value: MODERATION_STATUS.IN_REVIEW, label: 'Em análise' },
+    { value: MODERATION_STATUS.RESOLVED, label: 'Resolvida' },
+    { value: MODERATION_STATUS.ARCHIVED, label: 'Arquivada' }
   ];
 
   const statusColors = {
@@ -152,16 +169,13 @@ const Denuncias = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
+    return <LoadingState label="A carregar denúncias..." />;
   }
 
   return (
-    <div className="container mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Gestão de Denúncias</h1>
+    <AdminPage>
+      <AdminPageHeader title="Denúncias" description="Analise conteúdos reportados e preserve o histórico das decisões de moderação." />
+      {feedback && <InlineAlert type={feedback.type} onClose={() => setFeedback(null)}>{feedback.text}</InlineAlert>}
       
       {/* Filtros e Busca */}
       <div className="bg-white shadow rounded-lg p-4 mb-6">
@@ -252,7 +266,7 @@ const Denuncias = () => {
                             Ver
                           </button>
                           <button
-                            onClick={() => handleDelete(denuncia)}
+                            onClick={() => setPendingArchive(denuncia)}
                             className="text-red-600 hover:text-red-900"
                           >
                             Excluir
@@ -268,14 +282,20 @@ const Denuncias = () => {
             {/* Paginação (mesmo código anterior) */}
             {totalPages > 1 && (
               <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-                {/* ... (código de paginação mantido igual) ... */}
+                <p className="text-sm text-gray-600">Página {currentPage} de {totalPages}</p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => paginate(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 disabled:opacity-50">
+                    Anterior
+                  </button>
+                  <button type="button" onClick={() => paginate(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages} className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 disabled:opacity-50">
+                    Seguinte
+                  </button>
+                </div>
               </div>
             )}
           </>
         ) : (
-          <div className="text-center py-12">
-            {/* ... (código de nenhum resultado mantido igual) ... */}
-          </div>
+          <EmptyState title="Nenhuma denúncia encontrada" description="Não existem denúncias correspondentes aos filtros selecionados." />
         )}
       </div>
 
@@ -350,7 +370,7 @@ const Denuncias = () => {
 
               <div className="flex justify-end space-x-3 pt-4">
                 <button
-                  onClick={() => handleDelete(selectedDenuncia)}
+                  onClick={() => setPendingArchive(selectedDenuncia)}
                   className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
                 >
                   Excluir Denúncia
@@ -366,7 +386,19 @@ const Denuncias = () => {
           </div>
         </div>
       )}
-    </div>
+      <ConfirmDialog
+        open={Boolean(pendingArchive)}
+        title="Arquivar denúncia?"
+        description="A denúncia deixará a fila ativa, mas o registo e a decisão serão preservados para auditoria."
+        confirmLabel="Arquivar"
+        onCancel={() => setPendingArchive(null)}
+        onConfirm={async () => {
+          const report = pendingArchive;
+          setPendingArchive(null);
+          if (report) await handleDelete(report);
+        }}
+      />
+    </AdminPage>
   );
 };
 

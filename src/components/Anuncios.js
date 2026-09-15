@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ref, get, update, remove } from 'firebase/database';
-import { db } from '../fb';
+import { ref, get, update } from 'firebase/database';
+import { auth, db } from '../fb';
 import UploadBanner from './UploadBanner';
+import { AdminCard, AdminPage, AdminPageHeader, ConfirmDialog, EmptyState, InlineAlert, LoadingState, PrimaryButton } from './admin/ui/AdminUI';
 
 // Status colors mapping
 const STATUS_COLORS = {
   pendente: 'bg-yellow-100 text-yellow-800',
-  ativo: 'bg-green-100 text-green-800',
+  paid: 'bg-green-100 text-green-800',
+  unpaid: 'bg-yellow-100 text-yellow-800',
   notificado: 'bg-blue-100 text-blue-800',
   bloqueado: 'bg-red-100 text-red-800',
   arquivado: 'bg-gray-100 text-gray-800'
@@ -14,7 +16,8 @@ const STATUS_COLORS = {
 
 const STATUS_LABELS = {
   pendente: 'Pendente',
-  ativo: 'Ativo',
+  paid: 'Ativo e pago',
+  unpaid: 'A aguardar pagamento',
   notificado: 'Notificado',
   bloqueado: 'Bloqueado',
   arquivado: 'Arquivado'
@@ -25,6 +28,8 @@ const Anuncios = () => {
   const [anuncios, setAnuncios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [feedback, setFeedback] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null);
   const [filters, setFilters] = useState({
     status: 'pendentes',
     searchTerm: ''
@@ -39,7 +44,7 @@ const Anuncios = () => {
   // Tabs configuration
   const tabs = useMemo(() => [
     { id: 'pendentes', label: 'Pendentes' },
-    { id: 'ativo', label: 'Ativos' },
+    { id: 'paid', label: 'Ativos' },
     { id: 'notificado', label: 'Notificados' },
     { id: 'bloqueado', label: 'Bloqueados' },
     { id: 'arquivado', label: 'Arquivados' },
@@ -107,7 +112,7 @@ const Anuncios = () => {
     return {
       total: anuncios.length,
       pendentes: anuncios.filter(a => a.status === 'pendente').length,
-      ativos: anuncios.filter(a => a.status === 'ativo').length,
+      ativos: anuncios.filter(a => a.status === 'paid').length,
       notificados: anuncios.filter(a => a.status === 'notificado').length,
       bloqueados: anuncios.filter(a => a.status === 'bloqueado').length,
       arquivados: anuncios.filter(a => a.status === 'arquivado').length
@@ -122,13 +127,14 @@ const Anuncios = () => {
       
       switch(action) {
         case 'eliminar':
-          await remove(ref(db, `banners/${id}`));
-          setAnuncios(prev => prev.filter(a => a.id !== id));
-          successMessage = 'Anúncio eliminado com sucesso.';
+          updates.status = 'arquivado';
+          updates.archivedAt = Date.now();
+          updates.archivedBy = auth.currentUser?.uid || null;
+          successMessage = 'Anúncio arquivado com sucesso.';
           break;
           
         case 'verificar':
-          updates.status = 'ativo';
+          updates.status = 'paid';
           updates.verificadoEm = new Date().toISOString();
           successMessage = 'Anúncio verificado e ativado.';
           break;
@@ -154,7 +160,7 @@ const Anuncios = () => {
           break;
           
         case 'desbloquear':
-          updates.status = 'ativo';
+          updates.status = 'paid';
           updates.desbloqueadoEm = new Date().toISOString();
           delete updates.motivoBloqueio;
           successMessage = 'Anúncio desbloqueado e ativado.';
@@ -165,14 +171,16 @@ const Anuncios = () => {
       }
 
       if (Object.keys(updates).length > 0) {
+        updates.updatedAt = Date.now();
+        updates.updatedBy = auth.currentUser?.uid || null;
         await update(ref(db, `banners/${id}`), updates);
         setAnuncios(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
-        alert(successMessage);
+        setFeedback({ type: 'success', message: successMessage });
       }
 
     } catch (error) {
       console.error('Erro ao realizar a ação:', error);
-      alert('Erro ao realizar a ação.');
+      setFeedback({ type: 'error', message: 'Não foi possível concluir a ação.' });
     } finally {
       setActionState(prev => ({
         ...prev,
@@ -280,13 +288,16 @@ const Anuncios = () => {
             )}
             
             <button
-              onClick={() => handleAction(anuncio.id, 'eliminar')}
+              onClick={() => {
+                setArchiveTarget(anuncio);
+                setActionState(prev => ({ ...prev, menuOpen: null }));
+              }}
               className="flex items-center w-full px-4 py-2 text-sm text-red-700 hover:bg-red-100"
             >
               <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
-              Excluir
+              Arquivar
             </button>
           </div>
         </div>
@@ -411,20 +422,21 @@ const Anuncios = () => {
   );
 
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
+    return <LoadingState label="A carregar anúncios..." />;
   }
 
   if (error) {
-    return <p className="text-red-500 text-center p-4">{error}</p>;
+    return <InlineAlert type="error">{error}</InlineAlert>;
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
-      <h1 className="text-2xl md:text-3xl font-bold mb-6">Gestão de Anúncios</h1>
+    <AdminPage>
+      <AdminPageHeader
+        title="Gestão de Anúncios"
+        description="Valide campanhas e controle o conteúdo apresentado no portal."
+        actions={<PrimaryButton type="button" onClick={() => setActionState(prev => ({ ...prev, showModal: true }))}>Novo anúncio</PrimaryButton>}
+      />
+      {feedback && <InlineAlert type={feedback.type} onClose={() => setFeedback(null)}>{feedback.message}</InlineAlert>}
       
       {/* Statistics */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
@@ -461,7 +473,7 @@ const Anuncios = () => {
       </div>
       
       {/* Filters */}
-      <div className="bg-white p-4 rounded-lg shadow mb-6">
+      <AdminCard className="p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Buscar</label>
@@ -493,13 +505,11 @@ const Anuncios = () => {
             </select>
           </div>
         </div>
-      </div>
+      </AdminCard>
 
       {/* Anúncios List */}
       {filteredAnuncios.length === 0 ? (
-        <div className="text-center py-8 bg-white rounded-lg shadow">
-          <p className="text-gray-500">Nenhum anúncio encontrado com os filtros atuais.</p>
-        </div>
+        <AdminCard><EmptyState title="Nenhum anúncio encontrado" description="Ajuste os filtros ou aguarde uma nova campanha." /></AdminCard>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
@@ -564,20 +574,23 @@ const Anuncios = () => {
         </div>
       )}
 
-      {/* New Anúncio Button */}
-      <div className="mt-6 flex justify-end">
-        <button
-          className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md"
-          onClick={() => setActionState(prev => ({ ...prev, showModal: true }))}
-        >
-          + Novo Anúncio
-        </button>
-      </div>
-
       {/* Modals */}
       {actionState.selectedAnuncio && <NotificationModal />}
       {actionState.showModal && <UploadModal />}
-    </div>
+      <ConfirmDialog
+        open={Boolean(archiveTarget)}
+        title="Arquivar anúncio"
+        description="O anúncio deixará de aparecer no portal, mas o histórico será preservado."
+        confirmLabel="Arquivar"
+        danger
+        onCancel={() => setArchiveTarget(null)}
+        onConfirm={async () => {
+          const target = archiveTarget;
+          setArchiveTarget(null);
+          if (target) await handleAction(target.id, 'eliminar');
+        }}
+      />
+    </AdminPage>
   );
 };
 

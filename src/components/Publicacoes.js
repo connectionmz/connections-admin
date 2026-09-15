@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { getDatabase, ref, onValue, update, remove } from 'firebase/database';
+import { ref, onValue, update } from 'firebase/database';
+import { auth, db } from '../fb';
 import { 
   ExclamationTriangleIcon, 
   CheckCircleIcon, 
-  TrashIcon, 
-  EyeIcon, 
   PencilSquareIcon, 
   ClockIcon,
   MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
+import { AdminCard, AdminPage, AdminPageHeader, EmptyState, LoadingState } from './admin/ui/AdminUI';
 
 // Status configuration
 const STATUS_CONFIG = {
@@ -30,8 +30,6 @@ const STATUS_CONFIG = {
 };
 
 const Publicacoes = () => {
-  const database = getDatabase();
-  
   // States
   const [publicacoes, setPublicacoes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -55,7 +53,7 @@ const Publicacoes = () => {
 
   // Fetch publicacoes
   useEffect(() => {
-    const publicacoesRef = ref(database, 'posts');
+    const publicacoesRef = ref(db, 'posts');
     const unsubscribe = onValue(publicacoesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -72,7 +70,7 @@ const Publicacoes = () => {
     });
 
     return () => unsubscribe();
-  }, [database]);
+  }, []);
 
   // Filter publicacoes
   const filteredPublicacoes = useMemo(() => {
@@ -109,17 +107,19 @@ const Publicacoes = () => {
 
   // Handle status change
   const handleStatusChange = useCallback(async (id, status, motivo = '') => {
-    const postRef = ref(database, `posts/${id}`);
+    const postRef = ref(db, `posts/${id}`);
     try {
       await update(postRef, { 
         status,
-        ...(motivo && { motivoRemocao: motivo }),
+        motivoRemocao: motivo || null,
+        moderatedAt: Date.now(),
+        moderatedBy: auth.currentUser?.uid || null,
         updatedAt: Date.now() 
       });
     } catch (error) {
       console.error('Erro ao atualizar a publicação:', error);
     }
-  }, [database]);
+  }, []);
 
   // Handle remove action
   const handleRemoveClick = useCallback((pub) => {
@@ -142,14 +142,7 @@ const Publicacoes = () => {
         actionState.emailMessage
       );
       
-      // 2. Send email (simulated)
-      await sendMailToClient(
-        actionState.selectedPub.company?.email, 
-        'Publicação removida', 
-        `Sua publicação foi removida por conter conteúdo inadequado. Motivo: ${actionState.emailMessage}`
-      );
-      
-      // 3. Close modal and reset state
+      // A notificação deve ser enviada por um serviço autenticado quando este estiver configurado.
       setActionState({
         showModal: false,
         selectedPub: null,
@@ -160,25 +153,6 @@ const Publicacoes = () => {
       console.error('Erro ao processar remoção:', error);
     }
   }, [actionState, handleStatusChange]);
-
-  // Handle permanent delete
-  const handleDeletePermanently = useCallback(async (id) => {
-    if (window.confirm('Tem certeza que deseja excluir permanentemente esta publicação?')) {
-      try {
-        await remove(ref(database, `posts/${id}`));
-      } catch (error) {
-        console.error('Erro ao excluir publicação:', error);
-      }
-    }
-  }, [database]);
-
-  // Simulated email function
-  const sendMailToClient = async (to, subject, message) => {
-    console.log(`Enviando email para: ${to}`);
-    console.log(`Assunto: ${subject}`);
-    console.log(`Mensagem: ${message}`);
-    return new Promise(resolve => setTimeout(resolve, 1000));
-  };
 
   // Components
   const StatCard = ({ title, value, color }) => (
@@ -238,7 +212,7 @@ const Publicacoes = () => {
               !actionState.emailMessage.trim() ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >
-            Confirmar e Enviar
+            Confirmar bloqueio
           </button>
         </div>
       </div>
@@ -246,25 +220,20 @@ const Publicacoes = () => {
   );
 
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
+    return <LoadingState label="A carregar publicações..." />;
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <AdminPage>
       {/* Confirmation Modal */}
       {actionState.showModal && <ConfirmationModal />}
 
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <AdminPageHeader title="Gestão de Publicações" description="Modere o conteúdo publicado pelas empresas antes da sua apresentação no portal." />
+
+      <AdminCard className="p-6">
         <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">Gestão de Publicações</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Moderação de conteúdo publicado pelas empresas
-            </p>
+            <h2 className="text-lg font-semibold text-gray-900">Filtros</h2>
           </div>
           
           <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
@@ -325,23 +294,7 @@ const Publicacoes = () => {
 
         {/* Publications List */}
         {filteredPublicacoes.length === 0 ? (
-          <div className="text-center py-12">
-            <svg
-              className="mx-auto h-12 w-12 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <h3 className="mt-2 text-lg font-medium text-gray-900">Nenhuma publicação encontrada</h3>
-            <p className="mt-1 text-gray-500">Nenhuma publicação corresponde aos critérios de busca.</p>
-          </div>
+          <EmptyState title="Nenhuma publicação encontrada" description="Nenhuma publicação corresponde aos filtros atuais." />
         ) : (
           <div className="space-y-6">
             {filteredPublicacoes.map((pub) => {
@@ -385,18 +338,11 @@ const Publicacoes = () => {
                         </div>
                       </div>
                       
-                      {pub.status === 'bloqueado' && (
-                        <button
-                          onClick={() => handleDeletePermanently(pub.id)}
-                          className="text-gray-400 hover:text-red-500"
-                          title="Excluir permanentemente"
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </button>
-                      )}
                     </div>
 
-                    <div className="mt-4 text-gray-700" dangerouslySetInnerHTML={{ __html: pub.description }} />
+                    <p className="mt-4 whitespace-pre-wrap text-gray-700">
+                      {String(pub.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()}
+                    </p>
 
                     {pub.url && (
                       <div className="mt-4">
@@ -462,8 +408,8 @@ const Publicacoes = () => {
             })}
           </div>
         )}
-      </div>
-    </div>
+      </AdminCard>
+    </AdminPage>
   );
 };
 

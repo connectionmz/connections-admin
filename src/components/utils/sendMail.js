@@ -1,10 +1,14 @@
 import axios from "axios";
+import { auth } from '../../fb';
 
 const sendEmail = async (emailData) => {
   try {
+    if (!auth.currentUser) throw new Error('Sessão expirada. Entre novamente.');
+    const token = await auth.currentUser.getIdToken();
     const response = await axios.post('https://mohvi-sendmail.vercel.app/send-email', emailData, {
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       }
     });
     if (response.status) {

@@ -15,7 +15,6 @@ import {
   Block,
   CheckCircle,
   AccessTime,
-  MonetizationOn,
   Receipt,
   People,
   Public,
@@ -24,10 +23,9 @@ import {
   Engineering,
   Delete,
   Edit,
-  Add,
-  Refresh
 } from '@mui/icons-material';
 import ModulosComponent from './ModulosComponent';
+import { safeFileSegment, safePlainText } from '../utils/safeText';
 
 // Componentes de UI reutilizáveis
 const SectionHeader = ({ title, icon }) => (
@@ -128,6 +126,7 @@ const EmpresaDetalhes = () => {
           setUserModules(empresaData.activeModules || {});
           setStatus(empresaData.status || '');
           setSelectedSector(empresaData.categoriaExterna || '');
+          setAccessAction(empresaData.publicPainel === true ? 'grant' : 'revoke');
           
           // Processar visitas
           if (empresaData.visitas) {
@@ -188,10 +187,12 @@ const EmpresaDetalhes = () => {
   };
 
   const handleStatusChange = async (newStatus) => {
+    const previousStatus = status;
     setStatus(newStatus);
     
     try {
       await update(ref(db, `company/${id}`), { status: newStatus });
+      setEmpresa(previous => ({ ...previous, status: newStatus }));
       
       let message = '';
       switch (newStatus) {
@@ -207,6 +208,7 @@ const EmpresaDetalhes = () => {
         severity: 'success'
       });
     } catch (error) {
+      setStatus(previousStatus);
       console.error('Erro ao atualizar status:', error);
       setSnackbar({
         open: true,
@@ -218,6 +220,7 @@ const EmpresaDetalhes = () => {
 
   const handleAccessChange = (e) => {
     const action = e.target.value;
+    const previousAction = accessAction;
     setAccessAction(action);
     
     update(ref(db, `company/${id}`), {
@@ -229,6 +232,7 @@ const EmpresaDetalhes = () => {
         severity: 'success'
       });
     }).catch(error => {
+      setAccessAction(previousAction);
       console.error("Erro ao atualizar acesso:", error);
       setSnackbar({
         open: true,
@@ -248,16 +252,9 @@ const EmpresaDetalhes = () => {
   // Função para remover um módulo
   const handleRemoveModule = async (moduleKey, moduleName) => {
     try {
-      // Remove o módulo do objeto activeModules
       const updatedModules = { ...userModules };
       delete updatedModules[moduleKey];
-      
-      // Atualiza no Firebase
-      await update(ref(db, `company/${id}`), {
-        activeModules: updatedModules
-      });
-      
-      // Atualiza o estado local
+      await remove(ref(db, `company/${id}/activeModules/${moduleKey}`));
       setUserModules(updatedModules);
       
       setSnackbar({
@@ -282,9 +279,7 @@ const EmpresaDetalhes = () => {
   // Função para remover todos os módulos
   const handleRemoveAllModules = async () => {
     try {
-      await update(ref(db, `company/${id}`), {
-        activeModules: {}
-      });
+      await remove(ref(db, `company/${id}/activeModules`));
       
       setUserModules({});
       
@@ -317,9 +312,7 @@ const EmpresaDetalhes = () => {
         }
       };
       
-      await update(ref(db, `company/${id}`), {
-        activeModules: updatedModules
-      });
+      await update(ref(db, `company/${id}/activeModules/${moduleKey}`), updates);
       
       setUserModules(updatedModules);
       
@@ -340,7 +333,6 @@ const EmpresaDetalhes = () => {
   };
 
   const handleDeleteCompany = async () => {
-    if (window.confirm('Tem certeza que deseja eliminar permanentemente esta empresa? Esta ação não pode ser desfeita.')) {
       try {
         await remove(ref(db, `company/${id}`));
         setSnackbar({
@@ -357,7 +349,11 @@ const EmpresaDetalhes = () => {
           message: 'Erro ao eliminar empresa'
         });
       }
-    }
+  };
+
+  const handleModulesChanged = async () => {
+    const snapshot = await get(ref(db, `company/${id}/activeModules`));
+    setUserModules(snapshot.val() || {});
   };
 
   const gerarFatura = (sub) => {
@@ -371,7 +367,7 @@ const EmpresaDetalhes = () => {
     doc.text(`Método: ${sub.payment?.method || 'Não especificado'}`, 10, 55);
     doc.text(`Data: ${sub.payment?.date ? new Date(sub.payment.date).toLocaleDateString() : 'Não especificada'}`, 10, 65);
     doc.text(`Expira em: ${sub.expiryDate ? new Date(sub.expiryDate).toLocaleDateString() : 'Não especificada'}`, 10, 75);
-    doc.save(`fatura_${empresa.nome}_${sub.plan?.name || 'plano'}.pdf`);
+    doc.save(`fatura_${safeFileSegment(empresa.nome)}_${safeFileSegment(sub.plan?.name || 'plano')}.pdf`);
   };
 
   const handleSnackbarClose = () => {
@@ -491,15 +487,13 @@ const EmpresaDetalhes = () => {
 
             <div className="bg-white p-6 rounded-lg shadow-sm">
               <SectionHeader title="Sobre" icon={<Description className="!h-5 !w-5" />} />
-              <div className="text-gray-700 whitespace-pre-line" dangerouslySetInnerHTML={{ 
-                __html: empresa.bio || '<p>Nenhuma informação disponível</p>' 
-              }} />
+              <p className="whitespace-pre-line text-gray-700">{safePlainText(empresa.bio, 5000) || 'Nenhuma informação disponível'}</p>
             </div>
 
             {empresa.missaoVisaoValores && (
               <div className="bg-white p-6 rounded-lg shadow-sm">
                 <SectionHeader title="Missão, Visão e Valores" icon={<VerifiedUser className="!h-5 !w-5" />} />
-                <div dangerouslySetInnerHTML={{ __html: empresa.missaoVisaoValores }} />
+                <p className="whitespace-pre-line text-gray-700">{safePlainText(empresa.missaoVisaoValores, 5000)}</p>
               </div>
             )}
 
@@ -706,7 +700,7 @@ const EmpresaDetalhes = () => {
               </div>
             )}
 
-            <ModulosComponent empresa={empresa} activeModules={userModules} />
+            <ModulosComponent empresa={empresa} activeModules={userModules} onModuleUpdate={handleModulesChanged} />
           </div>
         );
 
@@ -729,7 +723,11 @@ const EmpresaDetalhes = () => {
                   variant="contained"
                   color="error"
                   startIcon={<Block />}
-                  onClick={handleDeleteCompany}
+                  onClick={() => setConfirmDialog({
+                    open: true,
+                    message: `Eliminar permanentemente “${empresa.nome}”? Esta ação remove o perfil da empresa e não pode ser desfeita.`,
+                    onConfirm: handleDeleteCompany
+                  })}
                   sx={{ mt: 2 }}
                 >
                   Eliminar Empresa
@@ -922,7 +920,7 @@ const EmpresaDetalhes = () => {
         </div>
         
         <div className="flex items-center space-x-2">
-          <StatusBadge status={empresa.status} />
+          <StatusBadge status={status} />
           {empresa.subscriptions?.isverify === "true" && (
             <Chip 
               icon={<VerifiedUser className="!h-4 !w-4" />}

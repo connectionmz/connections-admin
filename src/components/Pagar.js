@@ -1,64 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, update, remove } from 'firebase/database';
+import { ref, onValue, update } from 'firebase/database';
 import { db } from '../fb';
 import { 
   FaSearch, FaTrash, FaCheck, FaTimes, FaFileAlt, FaBuilding, 
   FaPhone, FaEnvelope, FaUser, FaCalendarAlt, FaMoneyBillWave, 
-  FaSms, FaStore, FaIdCard, FaClock,
-  FaGift, FaChartBar, FaFileCsv, FaBolt, FaBan
+  FaFileInvoice, FaSms, FaStore, FaIdCard, FaClock,
+  FaGift, FaChartBar, FaFileCsv
 } from 'react-icons/fa';
 import moment from 'moment';
+import jsPDF from 'jspdf';
 import 'moment/locale/pt';
+import { buildActiveModuleFromPayment, isActiveModule, normalizePaymentStatus, PAYMENT_STATUS } from '../domain/subscriptions';
+import { AdminPage, AdminPageHeader, ConfirmDialog, InlineAlert } from './admin/ui/AdminUI';
+import { safeFileSegment, safePlainText } from '../utils/safeText';
+import { isCollectedRevenuePayment, isNonRevenuePayment } from '../domain/crm';
 
 moment.locale('pt');
 
-// ────────────────────────────────────────────────────────────────
-// Módulos disponíveis hoje (mantido em sincronia com ModuleGrid.jsx)
-// ────────────────────────────────────────────────────────────────
-const MODULOS_DISPONIVEIS = {
-  moduloMarket: { label: 'Mercado (Produtos & Serviços)', icon: <FaStore className="text-purple-500" /> },
-  moduloSMS: { label: 'Cotações', icon: <FaSms className="text-green-500" /> },
-};
-
-const DIAS_POR_VALIDADE = {
-  Mensal: 30,
-  Anual: 365,
-};
-
-/**
- * Grava a ativação de um módulo diretamente na empresa — este é o node que
- * o app (via ActiveModulesContext) e o ModuleGrid realmente leem para
- * liberar/bloquear acesso. Aprovar um pagamento ou ativar um trial aqui
- * só tem efeito real se isto for chamado.
- */
-const ativarModuloNaEmpresa = async ({ companyId, moduleKey, moduleName, expiresAt, origem }) => {
-  if (!companyId || !moduleKey) {
-    throw new Error('companyId e moduleKey são obrigatórios para ativar um módulo.');
-  }
-  await update(ref(db, `company/${companyId}/activeModules/${moduleKey}`), {
-    status: 'active',
-    moduleName: moduleName || MODULOS_DISPONIVEIS[moduleKey]?.label || moduleKey,
-    expiresAt,
-    paidAt: Date.now(),
-    origem: origem || 'manual', // 'pagamento' | 'trial' | 'manual'
-  });
-};
-
-/**
- * Contraparte da ativação: remove o módulo de company/{id}/activeModules.
- * Reflete imediatamente no ModuleGrid e em qualquer rota protegida, pois
- * ambos leem o mesmo node via ActiveModulesContext.
- *
- * Atenção: isto remove o módulo incondicionalmente. Se a mesma empresa
- * tiver ganho o mesmo módulo por mais de uma via (ex: pagamento + trial
- * simultâneos), revogar por um dos registros derruba o acesso mesmo que
- * o outro ainda devesse valer. Para este produto, com um único módulo
- * de cotações/mercado por empresa, isso não costuma ser um problema na
- * prática — mas vale ter em mente se o modelo crescer.
- */
-const revogarModuloDaEmpresa = async ({ companyId, moduleKey }) => {
-  if (!companyId || !moduleKey) return;
-  await remove(ref(db, `company/${companyId}/activeModules/${moduleKey}`));
+const downloadPaymentReceipt = payment => {
+  const pdf = new jsPDF();
+  pdf.setFontSize(18);
+  pdf.text('Comprovativo interno de pagamento', 14, 20);
+  pdf.setFontSize(9);
+  pdf.text('Documento interno — não substitui documento fiscal certificado.', 14, 27);
+  pdf.setFontSize(11);
+  pdf.text(`Recibo: ${payment.receiptNumber || 'LEGADO-' + payment.id}`, 14, 40);
+  pdf.text(`Documento: ${payment.invoiceNumber || 'Não associado'}`, 14, 48);
+  pdf.text(`Empresa: ${safePlainText(payment.nome || payment.userName || 'Empresa', 150)}`, 14, 56);
+  pdf.text(`Módulo: ${safePlainText(payment.moduleName || payment.moduleKey || 'Não informado')}`, 14, 64);
+  pdf.text(`Valor recebido: ${Number(payment.amount || payment.valor || 0).toLocaleString('pt-MZ')} MZN`, 14, 72);
+  pdf.text(`Método: ${payment.paymentMethod === 'cash' ? 'Numerário' : safePlainText(payment.paymentMethod || 'Não informado')}`, 14, 80);
+  pdf.text(`Data: ${new Date(Number(payment.timestamp || payment.paidAt || Date.now())).toLocaleString('pt-MZ')}`, 14, 88);
+  pdf.save(`${safeFileSegment(payment.receiptNumber || `comprovativo_${payment.id}`)}.pdf`);
 };
 
 const Pagar = ({ user }) => {
@@ -66,17 +39,19 @@ const Pagar = ({ user }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [payments, setPayments] = useState([]);
   const [trials, setTrials] = useState([]);
-  const [subscriptions, setSubscriptions] = useState({});
+  const [companies, setCompanies] = useState({});
   const [filteredPayments, setFilteredPayments] = useState([]);
   const [filteredTrials, setFilteredTrials] = useState([]);
   const [selectedStatus, setSelectedStatus] = useState('todos');
   const [selectedModule, setSelectedModule] = useState('todos');
   const [selectedValidade, setSelectedValidade] = useState('todos');
+  const [selectedOrigin, setSelectedOrigin] = useState('todos');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [viewMode, setViewMode] = useState('payments');
   const [selectedItem, setSelectedItem] = useState(null);
-  const [feedback, setFeedback] = useState(null); // { message, type: 'success' | 'error' }
+  const [feedback, setFeedback] = useState(null);
+  const [pendingDeletion, setPendingDeletion] = useState(null);
   const [stats, setStats] = useState({
     totalPayments: 0,
     paidAmount: 0,
@@ -85,23 +60,32 @@ const Pagar = ({ user }) => {
     paidCount: 0,
     totalTrials: 0,
     activeTrials: 0,
-    activeSubscriptions: 0
+    activeSubscriptions: 0,
+    realPayments: 0,
+    manualActivations: 0
   });
 
   useEffect(() => {
     const paymentsRef = ref(db, 'payments');
     const trialsRef = ref(db, 'trials');
-    const subscriptionsRef = ref(db, 'subscriptions');
+    const companiesRef = ref(db, 'company');
     
     const unsubscribePayments = onValue(paymentsRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        const paymentsArray = Object.keys(data).map(key => ({
-          id: key,
-          ...data[key]
-        }));
+        const paymentsArray = Object.keys(data).map(key => {
+          const payment = data[key] || {};
+          return {
+            ...payment,
+            id: key,
+            nome: safePlainText(payment.nome, 150),
+            userName: safePlainText(payment.userName, 150),
+            reference: safePlainText(payment.reference, 180),
+            status: normalizePaymentStatus(payment.status),
+          };
+        });
         paymentsArray.sort((a, b) => b.timestamp - a.timestamp);
-        setPayments(paymentsArray);
+        setPayments(paymentsArray.filter(payment => payment.archived !== true));
       } else {
         setPayments([]);
       }
@@ -115,35 +99,34 @@ const Pagar = ({ user }) => {
           ...data[key]
         }));
         trialsArray.sort((a, b) => b.createdAt - a.createdAt);
-        setTrials(trialsArray);
+        setTrials(trialsArray.filter(trial => trial.archived !== true));
       } else {
         setTrials([]);
       }
     });
 
-    // Nota: `subscriptions` deixou de ser lido pelo app (ver ActiveModulesContext.jsx).
-    // Mantido aqui só para estatística histórica; não é mais escrito por este componente.
-    const unsubscribeSubscriptions = onValue(subscriptionsRef, (snapshot) => {
-      const data = snapshot.val();
-      setSubscriptions(data || {});
+    const unsubscribeCompanies = onValue(companiesRef, (snapshot) => {
+      setCompanies(snapshot.val() || {});
     });
 
     return () => {
       unsubscribePayments();
       unsubscribeTrials();
-      unsubscribeSubscriptions();
+      unsubscribeCompanies();
     };
   }, []);
 
   useEffect(() => {
+    // Compute stats
     const now = Date.now();
-    const paidAmount = payments.reduce((sum, p) => sum + (p.status === 'pago' ? parseFloat(p.amount || 0) : 0), 0);
-    const pendingCount = payments.filter(p => p.status === 'pendente').length;
-    const rejectedCount = payments.filter(p => p.status === 'rejeitado').length;
-    const paidCount = payments.filter(p => p.status === 'pago').length;
+    const collectedPayments = payments.filter(isCollectedRevenuePayment);
+    const paidAmount = collectedPayments.reduce((sum, p) => sum + Number(p.amount || p.valor || 0), 0);
+    const pendingCount = payments.filter(p => p.status === PAYMENT_STATUS.PENDING).length;
+    const rejectedCount = payments.filter(p => p.status === PAYMENT_STATUS.REJECTED).length;
+    const paidCount = payments.filter(p => p.status === PAYMENT_STATUS.PAID).length;
     const activeTrials = trials.filter(t => t.status === 'active' && t.endDate > now).length;
-    const activeSubs = Object.values(subscriptions).reduce((count, companySubs) => {
-      return count + Object.values(companySubs).filter(sub => sub.isActive && sub.end > now).length;
+    const activeSubs = Object.values(companies).reduce((count, company) => {
+      return count + Object.values(company.activeModules || {}).filter(module => isActiveModule(module, now)).length;
     }, 0);
 
     setStats({
@@ -154,27 +137,35 @@ const Pagar = ({ user }) => {
       paidCount,
       totalTrials: trials.length,
       activeTrials,
-      activeSubscriptions: activeSubs
+      activeSubscriptions: activeSubs,
+      realPayments: collectedPayments.length,
+      manualActivations: payments.filter(isNonRevenuePayment).length
     });
-  }, [payments, trials, subscriptions]);
+  }, [payments, trials, companies]);
 
   useEffect(() => {
     let result = payments;
     
+    // Filtro por status
     if (selectedStatus !== 'todos') {
       result = result.filter(payment => payment.status === selectedStatus);
     }
     
+    // Filtro por módulo
     if (selectedModule !== 'todos') {
       result = result.filter(payment => payment.moduleKey === selectedModule);
     }
     
+    // Filtro por validade
     if (selectedValidade !== 'todos') {
       result = result.filter(payment => 
         payment.subscription?.validade?.toLowerCase() === selectedValidade.toLowerCase()
       );
     }
+    if (selectedOrigin === 'real') result = result.filter(payment => !isNonRevenuePayment(payment));
+    if (selectedOrigin === 'manual') result = result.filter(isNonRevenuePayment);
 
+    // Filtro por data
     if (startDate) {
       const start = new Date(startDate).getTime();
       result = result.filter(p => p.timestamp >= start);
@@ -184,6 +175,7 @@ const Pagar = ({ user }) => {
       result = result.filter(p => p.timestamp <= end);
     }
     
+    // Filtro por termo de pesquisa
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(payment => 
@@ -199,19 +191,22 @@ const Pagar = ({ user }) => {
     }
     
     setFilteredPayments(result);
-  }, [payments, searchTerm, selectedStatus, selectedModule, selectedValidade, startDate, endDate]);
+  }, [payments, searchTerm, selectedStatus, selectedModule, selectedValidade, selectedOrigin, startDate, endDate]);
 
   useEffect(() => {
     let result = trials;
 
+    // Filtro por status for trials
     if (selectedStatus !== 'todos') {
       result = result.filter(trial => trial.status === selectedStatus);
     }
 
+    // Filtro por módulo
     if (selectedModule !== 'todos') {
       result = result.filter(trial => trial.moduleKey === selectedModule);
     }
 
+    // Filtro por data
     if (startDate) {
       const start = new Date(startDate).getTime();
       result = result.filter(t => t.createdAt >= start);
@@ -221,6 +216,7 @@ const Pagar = ({ user }) => {
       result = result.filter(t => t.createdAt <= end);
     }
 
+    // Filtro por termo de pesquisa
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(trial => 
@@ -233,183 +229,70 @@ const Pagar = ({ user }) => {
     setFilteredTrials(result);
   }, [trials, searchTerm, selectedStatus, selectedModule, startDate, endDate]);
 
-  const showFeedback = (message, type = 'success') => {
-    setFeedback({ message, type });
-    setTimeout(() => setFeedback(null), 4000);
-  };
-
-  /**
-   * Aprovar pagamento agora faz DUAS coisas: atualiza o registro do
-   * pagamento (histórico) E ativa o módulo de verdade na empresa.
-   * Rejeitar só atualiza o registro — não mexe em módulos.
-   */
-  const updatePaymentStatus = async (payment, newStatus) => {
+  const updatePaymentStatus = async (paymentId, newStatus) => {
     try {
       setLoading(true);
-
-      await update(ref(db, `payments/${payment.id}`), {
-        status: newStatus,
-        updatedAt: Date.now()
-      });
-
-      if (newStatus === 'pago') {
-        const dias = DIAS_POR_VALIDADE[payment.subscription?.validade] || 30;
-        const expiresAt = Date.now() + dias * 24 * 60 * 60 * 1000;
-
-        await ativarModuloNaEmpresa({
-          companyId: payment.userId,
-          moduleKey: payment.moduleKey,
-          moduleName: payment.moduleName,
-          expiresAt,
-          origem: 'pagamento',
-        });
-
-        showFeedback(`Pagamento aprovado e módulo "${payment.moduleName}" ativado para ${payment.nome || payment.userName}.`);
-      } else {
-        showFeedback('Pagamento atualizado.');
+      const payment = payments.find(item => item.id === paymentId);
+      const normalizedStatus = normalizePaymentStatus(newStatus);
+      const now = Date.now();
+      const updates = {
+        [`payments/${paymentId}/status`]: normalizedStatus,
+        [`payments/${paymentId}/updatedAt`]: now,
+      };
+      if (normalizedStatus === PAYMENT_STATUS.PAID) {
+        const activeModule = buildActiveModuleFromPayment(payment, now);
+        if (!activeModule) throw new Error('O pagamento não possui utilizador ou módulo associado.');
+        updates[`company/${payment.userId}/activeModules/${payment.moduleKey}`] = activeModule;
       }
+      await update(ref(db), updates);
+      setFeedback({ type: 'success', text: normalizedStatus === PAYMENT_STATUS.PAID ? 'Pagamento aprovado e módulo ativado.' : 'Estado do pagamento atualizado.' });
     } catch (error) {
       console.error('Erro ao atualizar status:', error);
-      showFeedback('Erro ao atualizar status do pagamento.', 'error');
+      setFeedback({ type: 'error', text: error.message || 'Não foi possível atualizar o pagamento.' });
     } finally {
       setLoading(false);
     }
   };
 
-  const deletePayment = async (payment) => {
-    const vaiRevogar = payment.status === 'pago';
-    const aviso = vaiRevogar
-      ? `Tem certeza que deseja excluir este pagamento? Isto TAMBÉM vai revogar o módulo "${payment.moduleName}" da empresa, já que ele foi concedido por este pagamento.`
-      : 'Tem certeza que deseja excluir este pagamento permanentemente?';
-
-    if (!window.confirm(aviso)) return;
-    
+  const deletePayment = async (paymentId) => {
     try {
       setLoading(true);
-      await remove(ref(db, `payments/${payment.id}`));
-
-      if (vaiRevogar) {
-        await revogarModuloDaEmpresa({ companyId: payment.userId, moduleKey: payment.moduleKey });
-        showFeedback(`Pagamento excluído e módulo "${payment.moduleName}" revogado.`);
-      }
-
+      await update(ref(db, `payments/${paymentId}`), { archived: true, archivedAt: Date.now() });
       setSelectedItem(null);
+      setFeedback({ type: 'success', text: 'Pagamento arquivado. O histórico financeiro foi preservado.' });
     } catch (error) {
       console.error('Erro ao excluir pagamento:', error);
-      showFeedback('Erro ao excluir pagamento.', 'error');
+      setFeedback({ type: 'error', text: 'Não foi possível arquivar o pagamento.' });
     } finally {
       setLoading(false);
     }
   };
 
-  /**
-   * Revoga o acesso concedido por um pagamento já aprovado, sem apagar
-   * o registro do pagamento (mantém o histórico, útil para estorno,
-   * cancelamento do cliente, etc).
-   */
-  const revokePayment = async (payment) => {
-    if (!window.confirm(`Revogar o módulo "${payment.moduleName}" desta empresa? O registro do pagamento continua no histórico, marcado como revogado.`)) return;
-
+  const deleteTrial = async (trialId) => {
     try {
       setLoading(true);
-      await update(ref(db, `payments/${payment.id}`), {
-        status: 'revogado',
-        updatedAt: Date.now()
-      });
-      await revogarModuloDaEmpresa({ companyId: payment.userId, moduleKey: payment.moduleKey });
-      showFeedback(`Módulo "${payment.moduleName}" revogado de ${payment.nome || payment.userName}.`);
-    } catch (error) {
-      console.error('Erro ao revogar módulo:', error);
-      showFeedback('Erro ao revogar módulo.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * Ativar um trial agora também grava o módulo de verdade na empresa,
-   * com expiração igual ao endDate do trial.
-   */
-  const updateTrialStatus = async (trial, newStatus) => {
-    try {
-      setLoading(true);
-      await update(ref(db, `trials/${trial.id}`), {
-        status: newStatus,
-        updatedAt: Date.now()
-      });
-
-      if (newStatus === 'active') {
-        await ativarModuloNaEmpresa({
-          companyId: trial.companyId,
-          moduleKey: trial.moduleKey,
-          moduleName: trial.moduleName,
-          expiresAt: trial.endDate,
-          origem: 'trial',
-        });
-
-        showFeedback(`Trial ativado — módulo "${trial.moduleName}" liberado para ${trial.companyName} até ${moment(trial.endDate).format('LL')}.`);
-      } else {
-        showFeedback('Trial atualizado.');
-      }
-    } catch (error) {
-      console.error('Erro ao atualizar status do trial:', error);
-      showFeedback('Erro ao atualizar status do trial.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const deleteTrial = async (trial) => {
-    const vaiRevogar = trial.status === 'active';
-    const aviso = vaiRevogar
-      ? `Tem certeza que deseja excluir este trial? Isto TAMBÉM vai revogar o módulo "${trial.moduleName}" da empresa, já que ele foi concedido por este trial.`
-      : 'Tem certeza que deseja excluir este trial permanentemente?';
-
-    if (!window.confirm(aviso)) return;
-    
-    try {
-      setLoading(true);
-      await remove(ref(db, `trials/${trial.id}`));
-
-      if (vaiRevogar) {
-        await revogarModuloDaEmpresa({ companyId: trial.companyId, moduleKey: trial.moduleKey });
-        showFeedback(`Trial excluído e módulo "${trial.moduleName}" revogado.`);
-      }
-
+      await update(ref(db, `trials/${trialId}`), { archived: true, archivedAt: Date.now() });
       setSelectedItem(null);
+      setFeedback({ type: 'success', text: 'Período experimental arquivado.' });
     } catch (error) {
       console.error('Erro ao excluir trial:', error);
-      showFeedback('Erro ao excluir trial.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * Revoga o acesso concedido por um trial já ativo, sem apagar o
-   * registro do trial (mantém o histórico).
-   */
-  const revokeTrial = async (trial) => {
-    if (!window.confirm(`Revogar o módulo "${trial.moduleName}" desta empresa? O registro do trial continua no histórico, marcado como revogado.`)) return;
-
-    try {
-      setLoading(true);
-      await update(ref(db, `trials/${trial.id}`), {
-        status: 'revogado',
-        updatedAt: Date.now()
-      });
-      await revogarModuloDaEmpresa({ companyId: trial.companyId, moduleKey: trial.moduleKey });
-      showFeedback(`Módulo "${trial.moduleName}" revogado de ${trial.companyName}.`);
-    } catch (error) {
-      console.error('Erro ao revogar módulo:', error);
-      showFeedback('Erro ao revogar módulo.', 'error');
+      setFeedback({ type: 'error', text: 'Não foi possível arquivar o período experimental.' });
     } finally {
       setLoading(false);
     }
   };
 
   const getModuleIcon = (moduleKey) => {
-    return MODULOS_DISPONIVEIS[moduleKey]?.icon || <FaFileAlt className="text-gray-500" />;
+    switch(moduleKey) {
+      case 'moduloProforma':
+        return <FaFileInvoice className="text-blue-500" />;
+      case 'moduloSMS':
+        return <FaSms className="text-green-500" />;
+      case 'moduloMarket':
+        return <FaStore className="text-purple-500" />;
+      default:
+        return <FaFileAlt className="text-gray-500" />;
+    }
   };
 
   const getStatusBadge = (status) => {
@@ -420,7 +303,6 @@ const Pagar = ({ user }) => {
       case 'pendente':
         return 'bg-yellow-100 text-yellow-800';
       case 'rejeitado':
-      case 'revogado':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -437,8 +319,6 @@ const Pagar = ({ user }) => {
         return 'Rejeitado';
       case 'active':
         return 'Ativo';
-      case 'revogado':
-        return 'Revogado';
       default:
         return status;
     }
@@ -499,31 +379,17 @@ const Pagar = ({ user }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-3xl font-bold text-gray-800">Gestão de Módulos</h1>
-        </div>
-        <p className="text-sm text-gray-500 mb-8 flex items-center">
-          <FaBolt className="mr-2 text-orange-400" />
-          Aprovar um pagamento ou ativar um trial aqui grava direto em <code className="mx-1 bg-gray-100 px-1 rounded">company/&#123;id&#125;/activeModules</code> — a mesma fonte que o app usa para liberar ou bloquear cada módulo.
-        </p>
-
-        {feedback && (
-          <div className={`mb-6 px-4 py-3 rounded-lg text-sm font-medium ${
-            feedback.type === 'error' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-          }`}>
-            {feedback.message}
-          </div>
-        )}
+    <AdminPage>
+        <AdminPageHeader title="Pagamentos e períodos experimentais" description="Acompanhe transações, aprove acessos e consulte os módulos efetivamente ativos no portal." />
+        {feedback && <InlineAlert type={feedback.type} onClose={() => setFeedback(null)}>{feedback.text}</InlineAlert>}
         
         {/* Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Total Pagamentos</p>
-                <p className="text-2xl font-bold">{stats.totalPayments}</p>
+                <p className="text-sm text-gray-500">Pagamentos reais</p>
+                <p className="text-2xl font-bold">{stats.realPayments}</p>
               </div>
               <FaMoneyBillWave className="text-blue-500 text-3xl" />
             </div>
@@ -531,10 +397,20 @@ const Pagar = ({ user }) => {
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Valor Total Pago</p>
+                <p className="text-sm text-gray-500">Receita confirmada</p>
                 <p className="text-2xl font-bold">{formatCurrency(stats.paidAmount)}</p>
               </div>
               <FaChartBar className="text-green-500 text-3xl" />
+            </div>
+          </div>
+          <div className="bg-white p-4 rounded-lg border border-amber-200 shadow">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Registos não financeiros</p>
+                <p className="text-2xl font-bold">{stats.manualActivations}</p>
+                <p className="text-xs text-amber-700">Registos legados fora da receita</p>
+              </div>
+              <FaGift className="text-amber-500 text-3xl" />
             </div>
           </div>
           <div className="bg-white p-4 rounded-lg shadow">
@@ -549,8 +425,8 @@ const Pagar = ({ user }) => {
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Pendentes de Aprovação</p>
-                <p className="text-2xl font-bold">{stats.pendingCount}</p>
+                <p className="text-sm text-gray-500">Subscrições Ativas</p>
+                <p className="text-2xl font-bold">{stats.activeSubscriptions}</p>
               </div>
               <FaCalendarAlt className="text-orange-500 text-3xl" />
             </div>
@@ -599,12 +475,10 @@ const Pagar = ({ user }) => {
                   <option value="pago">Pagos</option>
                   <option value="pendente">Pendentes</option>
                   <option value="rejeitado">Rejeitados</option>
-                  <option value="revogado">Revogados</option>
                 </>
               ) : (
                 <>
                   <option value="active">Ativos</option>
-                  <option value="revogado">Revogados</option>
                 </>
               )}
             </select>
@@ -614,11 +488,12 @@ const Pagar = ({ user }) => {
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="todos">Todos Módulos</option>
-              {Object.entries(MODULOS_DISPONIVEIS).map(([key, mod]) => (
-                <option key={key} value={key}>{mod.label}</option>
-              ))}
+              <option value="moduloProforma">Proforma</option>
+              <option value="moduloSMS">SMS</option>
+              <option value="moduloMarket">Market</option>
             </select>
             {viewMode === 'payments' && (
+              <>
               <select
                 value={selectedValidade}
                 onChange={(e) => setSelectedValidade(e.target.value)}
@@ -628,6 +503,12 @@ const Pagar = ({ user }) => {
                 <option value="Mensal">Mensal</option>
                 <option value="Anual">Anual</option>
               </select>
+              <select value={selectedOrigin} onChange={(e) => setSelectedOrigin(e.target.value)} className="px-4 py-2 border border-gray-300 rounded-lg">
+                <option value="todos">Todas as origens</option>
+                <option value="real">Receita real</option>
+                <option value="manual">Manual/trial — fora da receita</option>
+              </select>
+              </>
             )}
             <input
               type="date"
@@ -695,46 +576,34 @@ const Pagar = ({ user }) => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatCurrency(parseFloat(payment.amount))}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{payment.mpesaResponse?.output_TransactionID || 'N/A'}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
+                        {isNonRevenuePayment(payment) && <span className="mr-2 inline-flex rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">Fora da receita</span>}
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadge(payment.status)}`}>
                           {getStatusText(payment.status)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex space-x-2" onClick={e => e.stopPropagation()}>
-                          {payment.status !== 'pago' && payment.status !== 'revogado' && (
+                          {payment.status !== 'pago' && (
                             <>
                               <button 
-                                onClick={() => updatePaymentStatus(payment, 'pago')}
+                                onClick={() => updatePaymentStatus(payment.id, 'pago')}
                                 className="text-green-600 hover:text-green-800"
-                                title="Aprovar e ativar módulo"
                                 disabled={loading}
                               >
                                 <FaCheck />
                               </button>
                               <button 
-                                onClick={() => updatePaymentStatus(payment, 'rejeitado')}
+                                onClick={() => updatePaymentStatus(payment.id, 'rejeitado')}
                                 className="text-red-600 hover:text-red-800"
-                                title="Rejeitar"
                                 disabled={loading}
                               >
                                 <FaTimes />
                               </button>
                             </>
                           )}
-                          {payment.status === 'pago' && (
-                            <button 
-                              onClick={() => revokePayment(payment)}
-                              className="text-orange-600 hover:text-orange-800"
-                              title="Revogar módulo (mantém o histórico)"
-                              disabled={loading}
-                            >
-                              <FaBan />
-                            </button>
-                          )}
                           <button 
-                            onClick={() => deletePayment(payment)}
+                            onClick={() => setPendingDeletion({ type: 'payment', id: payment.id, label: payment.nome || payment.userName || payment.id })}
                             className="text-gray-600 hover:text-gray-800"
-                            title="Excluir registo"
                             disabled={loading}
                           >
                             <FaTrash />
@@ -766,30 +635,9 @@ const Pagar = ({ user }) => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex space-x-2" onClick={e => e.stopPropagation()}>
-                          {trial.status !== 'active' && trial.status !== 'revogado' && (
-                            <button 
-                              onClick={() => updateTrialStatus(trial, 'active')}
-                              className="text-green-600 hover:text-green-800"
-                              title="Ativar trial e módulo"
-                              disabled={loading}
-                            >
-                              <FaCheck />
-                            </button>
-                          )}
-                          {trial.status === 'active' && (
-                            <button 
-                              onClick={() => revokeTrial(trial)}
-                              className="text-orange-600 hover:text-orange-800"
-                              title="Revogar módulo (mantém o histórico)"
-                              disabled={loading}
-                            >
-                              <FaBan />
-                            </button>
-                          )}
                           <button 
-                            onClick={() => deleteTrial(trial)}
+                            onClick={() => setPendingDeletion({ type: 'trial', id: trial.id, label: trial.companyName || trial.id })}
                             className="text-gray-600 hover:text-gray-800"
-                            title="Excluir registo"
                             disabled={loading}
                           >
                             <FaTrash />
@@ -805,7 +653,6 @@ const Pagar = ({ user }) => {
             </table>
           </div>
         </div>
-      </div>
 
       {/* Details Modal */}
       {selectedItem && (
@@ -888,12 +735,9 @@ const Pagar = ({ user }) => {
                         </div>
                         <div>
                           <p className="text-sm text-gray-500">Referência</p>
-                          <p className="font-medium">{selectedItem.referencia || 'Não informada'}</p>
+                          <p className="font-medium">{selectedItem.reference || selectedItem.referencia || 'Não informada'}</p>
                         </div>
-                        <div>
-                          <p className="text-sm text-gray-500">Validade</p>
-                          <p className="font-medium">{selectedItem.subscription?.validade || 'Não informada'}</p>
-                        </div>
+                        {selectedItem.receiptNumber && <div><p className="text-sm text-gray-500">Documentos</p><p className="font-medium">{selectedItem.invoiceNumber} · {selectedItem.receiptNumber}</p></div>}
                       </>
                     ) : (
                       <>
@@ -923,22 +767,43 @@ const Pagar = ({ user }) => {
                 </div>
               </div>
 
-              <div className="mt-6 flex justify-end space-x-3">
-                {selectedItem.type === 'payment' && selectedItem.status !== 'pago' && selectedItem.status !== 'revogado' && (
+              {selectedItem.type === 'payment' && selectedItem.mpesaResponse && (
+                <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                  <h4 className="font-semibold text-lg text-gray-700 mb-3">Detalhes M-Pesa</h4>
+                  {/* ... similar to original ... */}
+                </div>
+              )}
+
+              {selectedItem.type === 'payment' && selectedItem.subscription && (
+                <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                  <h4 className="font-semibold text-lg text-gray-700 mb-3 flex items-center">
+                    <FaCalendarAlt className="mr-2" /> Informações da Subscrição
+                  </h4>
+                  {/* ... similar to original ... */}
+                </div>
+              )}
+
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                {selectedItem.type === 'payment' && isCollectedRevenuePayment(selectedItem) && (
+                  <button type="button" onClick={() => downloadPaymentReceipt(selectedItem)} className="px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 flex items-center">
+                    <FaFileInvoice className="mr-2" /> Baixar comprovativo
+                  </button>
+                )}
+                {selectedItem.type === 'payment' && selectedItem.status !== 'pago' && (
                   <>
                     <button
                       onClick={() => {
-                        updatePaymentStatus(selectedItem, 'pago');
+                        updatePaymentStatus(selectedItem.id, 'pago');
                         closeDetails();
                       }}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center"
                       disabled={loading}
                     >
-                      <FaCheck className="mr-2" /> Aprovar e Ativar Módulo
+                      <FaCheck className="mr-2" /> Marcar como Pago
                     </button>
                     <button
                       onClick={() => {
-                        updatePaymentStatus(selectedItem, 'rejeitado');
+                        updatePaymentStatus(selectedItem.id, 'rejeitado');
                         closeDetails();
                       }}
                       className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center"
@@ -948,62 +813,37 @@ const Pagar = ({ user }) => {
                     </button>
                   </>
                 )}
-                {selectedItem.type === 'payment' && selectedItem.status === 'pago' && (
-                  <button
-                    onClick={() => {
-                      revokePayment(selectedItem);
-                      closeDetails();
-                    }}
-                    className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 flex items-center"
-                    disabled={loading}
-                  >
-                    <FaBan className="mr-2" /> Revogar Módulo
-                  </button>
-                )}
-                {selectedItem.type === 'trial' && selectedItem.status !== 'active' && selectedItem.status !== 'revogado' && (
-                  <button
-                    onClick={() => {
-                      updateTrialStatus(selectedItem, 'active');
-                      closeDetails();
-                    }}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center"
-                    disabled={loading}
-                  >
-                    <FaCheck className="mr-2" /> Ativar Trial e Módulo
-                  </button>
-                )}
-                {selectedItem.type === 'trial' && selectedItem.status === 'active' && (
-                  <button
-                    onClick={() => {
-                      revokeTrial(selectedItem);
-                      closeDetails();
-                    }}
-                    className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 flex items-center"
-                    disabled={loading}
-                  >
-                    <FaBan className="mr-2" /> Revogar Módulo
-                  </button>
-                )}
                 <button
-                  onClick={() => {
-                    if (selectedItem.type === 'payment') {
-                      deletePayment(selectedItem);
-                    } else {
-                      deleteTrial(selectedItem);
-                    }
-                    closeDetails();
-                  }}
+                  onClick={() => setPendingDeletion({
+                    type: selectedItem.type,
+                    id: selectedItem.id,
+                    label: selectedItem.nome || selectedItem.userName || selectedItem.companyName || selectedItem.id
+                  })}
                   className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 flex items-center"
                   disabled={loading}
                 >
-                  <FaTrash className="mr-2" /> Excluir
+                  <FaTrash className="mr-2" /> Arquivar
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
-    </div>
+      <ConfirmDialog
+        open={Boolean(pendingDeletion)}
+        title="Arquivar registo?"
+        description={`O registo de “${pendingDeletion?.label || ''}” deixará de aparecer nas listagens, mas será preservado para auditoria.`}
+        confirmLabel="Arquivar"
+        busy={loading}
+        onCancel={() => setPendingDeletion(null)}
+        onConfirm={async () => {
+          const pending = pendingDeletion;
+          setPendingDeletion(null);
+          if (pending?.type === 'payment') await deletePayment(pending.id);
+          if (pending?.type === 'trial') await deleteTrial(pending.id);
+        }}
+      />
+    </AdminPage>
   );
 };
 

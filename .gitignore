@@ -18,6 +18,10 @@
 .env.test.local
 .env.production.local
 
+# Firebase Admin credentials and exported authentication data
+**/*firebase-adminsdk*.json
+/src/fbAdmin/users.json
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

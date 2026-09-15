@@ -4,6 +4,8 @@ import { ref, get, onValue } from 'firebase/database';
 import { db } from '../fb';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { AdminPage, AdminPageHeader, EmptyState, InlineAlert, LoadingState, PrimaryButton, SecondaryButton } from './admin/ui/AdminUI';
+import { safePlainText } from '../utils/safeText';
 
 const EmpresasDashboard = () => {
   // Estados para dados e filtros
@@ -11,13 +13,12 @@ const EmpresasDashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [provincias, setProvincias] = useState([]);
   const [sectores, setSectores] = useState([]);
-  const [tiposEntidades, setTiposEntidades] = useState([]);
   const [filters, setFilters] = useState({
     sector: '',
-    provincia: '',
-    tipoEntidade: ''
+    provincia: ''
   });
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState(null);
 
   // Filtragem otimizada com useMemo
   const filteredEmpresas = useMemo(() => {
@@ -31,9 +32,7 @@ const EmpresasDashboard = () => {
 
       const matchesSector = !filters.sector || empresa.sector === filters.sector;
       const matchesProvince = !filters.provincia || empresa.provincia === filters.provincia;
-      const matchesEntidade = !filters.tipoEntidade || empresa.tipoEntidade === filters.tipoEntidade;
-
-      return matchesSearch && matchesSector && matchesProvince && matchesEntidade;
+      return matchesSearch && matchesSector && matchesProvince;
     });
   }, [empresas, searchTerm, filters]);
 
@@ -46,7 +45,7 @@ useEffect(() => {
         const empresasData = empresasSnapshot.val();
         const empresasList = empresasData ? 
           Object.entries(empresasData)
-            .map(([id, data]) => ({ id, ...data }))
+            .map(([id, data]) => ({ ...data, id, nome: safePlainText(data?.nome, 150) }))
             .filter(empresa => empresa.type !== 'singular') : 
           [];
         
@@ -54,31 +53,32 @@ useEffect(() => {
 
         const provinciasRef = ref(db, 'provincias');
         const sectoresRef = ref(db, 'sectores_de_atividade');
-        const tipoEntidadeRef = ref(db, 'tipos_entidades');
 
-        onValue(provinciasRef, (snapshot) => {
+        const unsubscribeProvincias = onValue(provinciasRef, (snapshot) => {
           const data = snapshot.val();
           setProvincias(data ? Object.values(data) : []);
         });
 
-        onValue(sectoresRef, (snapshot) => {
+        const unsubscribeSectores = onValue(sectoresRef, (snapshot) => {
           const data = snapshot.val();
           setSectores(data ? Object.values(data) : []);
         });
-
-        onValue(tipoEntidadeRef, (snapshot) => {
-          const data = snapshot.val();
-          setTiposEntidades(data ? Object.values(data) : []);
-        });
+        return () => {
+          unsubscribeProvincias();
+          unsubscribeSectores();
+        };
 
       } catch (error) {
         console.error('Erro ao buscar dados:', error);
+        setNotice({ type: 'error', text: 'Não foi possível carregar as empresas.' });
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
+    let cleanup;
+    fetchData().then(unsubscribe => { cleanup = unsubscribe; });
+    return () => cleanup?.();
   }, []);
 
   const generateCustomSectorReport = () => {
@@ -87,7 +87,7 @@ useEffect(() => {
     );
 
     if (empresasOutro.length === 0) {
-      alert('Nenhuma empresa com setor "outro" encontrada.');
+      setNotice({ type: 'info', text: 'Não existem empresas classificadas no setor “Outro” para exportar.' });
       return;
     }
 
@@ -143,35 +143,27 @@ useEffect(() => {
   }, [empresas, provincias]);
 
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
+    return <LoadingState label="A carregar empresas..." />;
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center">
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard de Empresas</h1>
-            <button
+    <AdminPage>
+      <AdminPageHeader
+        title="Empresas"
+        description="Consulte, filtre e acompanhe as organizações registadas na plataforma."
+        actions={<>
+          <Link to="/crm" className="inline-flex min-h-10 items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Abrir CRM</Link>
+          <PrimaryButton
               onClick={generateCustomSectorReport}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors flex items-center"
             >
               <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               Exportar Relatório
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Conteúdo Principal */}
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+          </PrimaryButton>
+        </>}
+      />
+      {notice && <InlineAlert type={notice.type} onClose={() => setNotice(null)}>{notice.text}</InlineAlert>}
         {/* Cards de Estatísticas */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white overflow-hidden shadow rounded-lg">
@@ -236,7 +228,7 @@ useEffect(() => {
         </div>
 
         {/* Filtros */}
-        <div className="bg-white shadow rounded-lg mb-8">
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="px-4 py-5 sm:p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Filtrar Empresas</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -292,6 +284,13 @@ useEffect(() => {
                 </select>
               </div>
             </div>
+            {(searchTerm || Object.values(filters).some(Boolean)) && (
+              <div className="mt-4 flex justify-end">
+                <SecondaryButton type="button" onClick={() => { setSearchTerm(''); setFilters({ sector: '', provincia: '' }); }}>
+                  Limpar filtros
+                </SecondaryButton>
+              </div>
+            )}
           </div>
         </div>
 
@@ -359,21 +358,13 @@ useEffect(() => {
               ))}
             </ul>
           ) : (
-            <div className="p-12 text-center">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <h3 className="mt-2 text-lg font-medium text-gray-900">Nenhuma empresa encontrada</h3>
-              <p className="mt-1 text-gray-500">
-                {searchTerm || Object.values(filters).some(f => f) 
-                  ? "Tente ajustar seus filtros de pesquisa" 
-                  : "Nenhuma empresa cadastrada no sistema"}
-              </p>
-            </div>
+            <EmptyState
+              title="Nenhuma empresa encontrada"
+              description={searchTerm || Object.values(filters).some(Boolean) ? 'Ajuste ou limpe os filtros de pesquisa.' : 'Ainda não existem empresas registadas no sistema.'}
+            />
           )}
         </div>
-      </main>
-    </div>
+    </AdminPage>
   );
 };
 

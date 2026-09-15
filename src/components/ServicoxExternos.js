@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ref, get, update, remove } from 'firebase/database';
 import { db } from '../fb';
 import AddExternalServices from './AddExternalServices';
+import { AdminCard, AdminPage, AdminPageHeader, EmptyState, InlineAlert, LoadingState, PrimaryButton } from './admin/ui/AdminUI';
 
 const ServicosExternos = () => {
   const [loading, setLoading] = useState(true);
@@ -60,25 +61,20 @@ const ServicosExternos = () => {
   };
 
   if (loading) {
-    return <p>Carregando...</p>;
+    return <LoadingState label="A carregar serviços externos..." />;
   }
 
   if (error) {
-    return <p className="text-red-500">{error}</p>;
+    return <InlineAlert type="error">{error}</InlineAlert>;
   }
 
   return (
-    <div className="bg-gray-100 p-6 rounded-lg">
-      <h2 className="text-xl font-semibold mb-4">Lista de Serviços</h2>
-      <button
-        className="bg-green-500 text-white px-4 py-2 rounded-md mb-4"
-        onClick={() => setShowModal(true)}
-      >
-        Adicionar
-      </button>
+    <AdminPage>
+      <AdminPageHeader title="Serviços externos" description="Administre os serviços complementares disponíveis na plataforma." actions={<PrimaryButton type="button" onClick={() => setShowModal(true)}>Adicionar serviço</PrimaryButton>} />
+      <AdminCard className="overflow-x-auto p-4">
 
       {servicos.length === 0 ? (
-        <p className="text-gray-500">Nenhum serviço disponível.</p>
+        <EmptyState title="Nenhum serviço disponível" description="Adicione um serviço para começar." />
       ) : (
         <table className="w-full text-left">
           <thead>
@@ -126,13 +122,14 @@ const ServicosExternos = () => {
           </tbody>
         </table>
       )}
+      </AdminCard>
 
       {showModal && (
         <Modal onClose={() => setShowModal(false)}>
           <AddExternalServices />
         </Modal>
       )}
-    </div>
+    </AdminPage>
   );
 };
 

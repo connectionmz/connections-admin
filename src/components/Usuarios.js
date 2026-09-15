@@ -15,6 +15,7 @@ import {
   Filler
 } from 'chart.js';
 import { Doughnut, Bar, Line } from 'react-chartjs-2';
+import { AdminPage, AdminPageHeader, LoadingState } from './admin/ui/AdminUI';
 
 // Registrar componentes do Chart.js
 ChartJS.register(
@@ -415,12 +416,7 @@ const EstatisticasEmpresas = () => {
 
   // Componente de loading
   if (loading) {
-    return (
-      <div className="flex flex-col justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500"></div>
-        <p className="mt-4 text-lg text-gray-600">Carregando estatísticas...</p>
-      </div>
-    );
+    return <LoadingState label="Carregando estatísticas..." />;
   }
 
   // Componente de erro
@@ -523,7 +519,8 @@ const EstatisticasEmpresas = () => {
   ];
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-8">
+    <AdminPage>
+      <AdminPageHeader title="Utilizadores offline" description="Consulte atividade, frequência e distribuição das empresas." />
       {/* Modal de Detalhes */}
       {empresaSelecionada && <DetalhesEmpresa empresa={empresaSelecionada} />}
 
@@ -929,7 +926,7 @@ const EstatisticasEmpresas = () => {
           </div>
         </div>
       )}
-    </div>
+    </AdminPage>
   );
 };
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, update, remove } from 'firebase/database';
-import { db } from '../fb';
+import { ref, onValue, update } from 'firebase/database';
+import { auth, db } from '../fb';
+import { AdminCard, AdminPage, AdminPageHeader, ConfirmDialog, EmptyState, InlineAlert, LoadingState } from './admin/ui/AdminUI';
 
 const AdminEventos = () => {
   const [eventos, setEventos] = useState([]);
@@ -8,6 +9,8 @@ const AdminEventos = () => {
   const [eventoEditando, setEventoEditando] = useState(null);
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [busca, setBusca] = useState('');
+  const [feedback, setFeedback] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null);
 
   useEffect(() => {
     const eventosRef = ref(db, 'eventos');
@@ -33,8 +36,8 @@ const AdminEventos = () => {
   // Filtrar eventos
   const eventosFiltrados = eventos.filter(evento => {
     const matchStatus = filtroStatus === 'todos' || evento.status === filtroStatus;
-    const matchBusca = evento.titulo.toLowerCase().includes(busca.toLowerCase()) ||
-                      evento.criadoPor.nome.toLowerCase().includes(busca.toLowerCase());
+    const matchBusca = String(evento.titulo || '').toLowerCase().includes(busca.toLowerCase()) ||
+                      String(evento.criadoPor?.nome || '').toLowerCase().includes(busca.toLowerCase());
     return matchStatus && matchBusca;
   });
 
@@ -42,28 +45,35 @@ const AdminEventos = () => {
   const alterarStatus = async (eventoId, novoStatus) => {
     try {
       const eventoRef = ref(db, `eventos/${eventoId}`);
-      await update(eventoRef, { status: novoStatus });
+      await update(eventoRef, {
+        status: novoStatus,
+        updatedAt: Date.now(),
+        updatedBy: auth.currentUser?.uid || null,
+      });
       
       // Feedback opcional
       console.log(`Status do evento ${eventoId} alterado para: ${novoStatus}`);
+      setFeedback({ type: 'success', message: 'Estado do evento atualizado.' });
     } catch (error) {
       console.error('Erro ao alterar status:', error);
-      alert('Erro ao alterar status do evento');
+      setFeedback({ type: 'error', message: 'Não foi possível atualizar o estado do evento.' });
     }
   };
 
   // Excluir evento
-  const excluirEvento = async (eventoId, titulo) => {
-    if (window.confirm(`Tem certeza que deseja excluir o evento "${titulo}"?`)) {
-      try {
-        const eventoRef = ref(db, `eventos/${eventoId}`);
-        await remove(eventoRef);
-        
-        console.log(`Evento ${eventoId} excluído com sucesso`);
-      } catch (error) {
-        console.error('Erro ao excluir evento:', error);
-        alert('Erro ao excluir evento');
-      }
+  const excluirEvento = async (eventoId) => {
+    try {
+      const eventoRef = ref(db, `eventos/${eventoId}`);
+      await update(eventoRef, {
+        status: 'arquivado',
+        archivedAt: Date.now(),
+        archivedBy: auth.currentUser?.uid || null,
+        updatedAt: Date.now(),
+      });
+      setFeedback({ type: 'success', message: 'Evento arquivado.' });
+    } catch (error) {
+      console.error('Erro ao arquivar evento:', error);
+      setFeedback({ type: 'error', message: 'Não foi possível arquivar o evento.' });
     }
   };
 
@@ -76,7 +86,9 @@ const AdminEventos = () => {
       const dadosAtualizados = {
         titulo: eventoEditando.titulo,
         status: eventoEditando.status,
-        ...(eventoEditando.descricao && { descricao: eventoEditando.descricao })
+        ...(eventoEditando.descricao && { descricao: eventoEditando.descricao }),
+        updatedAt: Date.now(),
+        updatedBy: auth.currentUser?.uid || null,
       };
 
       await update(eventoRef, dadosAtualizados);
@@ -85,7 +97,7 @@ const AdminEventos = () => {
       console.log('Evento atualizado com sucesso');
     } catch (error) {
       console.error('Erro ao atualizar evento:', error);
-      alert('Erro ao atualizar evento');
+      setFeedback({ type: 'error', message: 'Não foi possível atualizar o evento.' });
     }
   };
 
@@ -148,27 +160,17 @@ const AdminEventos = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Carregando eventos...</p>
-        </div>
-      </div>
-    );
+    return <LoadingState label="A carregar eventos..." />;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-      <div className="max-w-7xl mx-auto">
+    <AdminPage>
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Administração de Eventos</h1>
-          <p className="text-gray-600 mt-2">Gerencie todos os eventos do sistema - {eventos.length} evento(s) encontrado(s)</p>
-        </div>
+        <AdminPageHeader title="Gestão de Eventos" description={`${eventos.length} evento(s) registado(s). Controle a visibilidade no portal.`} />
+        {feedback && <InlineAlert type={feedback.type} onClose={() => setFeedback(null)}>{feedback.message}</InlineAlert>}
 
         {/* Filtros e Busca */}
-        <div className="bg-white rounded-lg shadow p-4 md:p-6 mb-6">
+        <AdminCard className="p-4 md:p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -198,7 +200,7 @@ const AdminEventos = () => {
               </select>
             </div>
           </div>
-        </div>
+        </AdminCard>
 
         {/* Estatísticas */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6">
@@ -227,20 +229,9 @@ const AdminEventos = () => {
         </div>
 
         {/* Lista de Eventos */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <AdminCard className="overflow-hidden">
           {eventosFiltrados.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="text-gray-400 text-4xl md:text-6xl mb-4">📅</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                Nenhum evento encontrado
-              </h3>
-              <p className="text-gray-600">
-                {busca || filtroStatus !== 'todos' 
-                  ? 'Tente ajustar os filtros de busca' 
-                  : 'Ainda não há eventos cadastrados'
-                }
-              </p>
-            </div>
+            <EmptyState title="Nenhum evento encontrado" description={busca || filtroStatus !== 'todos' ? 'Ajuste os filtros de pesquisa.' : 'Ainda não existem eventos registados.'} />
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -336,10 +327,10 @@ const AdminEventos = () => {
                             Editar
                           </button>
                           <button
-                            onClick={() => excluirEvento(evento.id, evento.titulo)}
+                            onClick={() => setArchiveTarget(evento)}
                             className="text-red-600 hover:text-red-900 text-left text-xs md:text-sm"
                           >
-                            Excluir
+                            Arquivar
                           </button>
                         </div>
                       </td>
@@ -349,7 +340,7 @@ const AdminEventos = () => {
               </table>
             </div>
           )}
-        </div>
+        </AdminCard>
 
         {/* Modal de Edição */}
         {eventoEditando && (
@@ -453,8 +444,20 @@ const AdminEventos = () => {
             </div>
           </div>
         )}
-      </div>
-    </div>
+      <ConfirmDialog
+        open={Boolean(archiveTarget)}
+        title="Arquivar evento"
+        description={`O evento “${archiveTarget?.titulo || ''}” deixará de aparecer no portal, mantendo o histórico.`}
+        confirmLabel="Arquivar"
+        danger
+        onCancel={() => setArchiveTarget(null)}
+        onConfirm={async () => {
+          const target = archiveTarget;
+          setArchiveTarget(null);
+          if (target) await excluirEvento(target.id);
+        }}
+      />
+    </AdminPage>
   );
 };
 

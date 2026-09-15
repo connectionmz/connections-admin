@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { 
-  Modal, Box, Checkbox, Button, Typography, FormControlLabel, 
+  Modal, Box, Checkbox, Button, Typography,
   Chip, Alert, Snackbar, CircularProgress, Divider, IconButton,
   Tooltip, Paper, Grid
 } from "@mui/material";
@@ -8,8 +8,8 @@ import {
   getDatabase, ref, onValue, update, get 
 } from "firebase/database";
 import { 
-  MonetizationOn, CheckCircle, Cancel, Refresh, 
-  Warning, Info, Add, Remove 
+  MonetizationOn, CheckCircle, Refresh,
+  Warning, Add
 } from "@mui/icons-material";
 
 const db = getDatabase();
@@ -17,7 +17,6 @@ const db = getDatabase();
 const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
   const [open, setOpen] = useState(false);
   const [selectedModules, setSelectedModules] = useState([]);
-  const [modules, setModules] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [snackbar, setSnackbar] = useState({
@@ -37,7 +36,6 @@ const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
     const unsubscribe = onValue(modulosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setModules(data);
         console.log('📦 Módulos carregados do Firebase:', data);
         
         // Criar lista de módulos a partir dos dados do Firebase
@@ -67,7 +65,6 @@ const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
         setModuleDetails(details);
       } else {
         console.warn('⚠️ Nenhum módulo encontrado no Firebase');
-        setModules({});
         setModuleDetails({});
         setModulesList([]);
       }
@@ -124,15 +121,6 @@ const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
     );
   };
 
-  const getModulePrice = (moduleKey) => {
-    return moduleDetails[moduleKey]?.price || modules[moduleKey]?.price || 0;
-  };
-
-  const getModuleName = (moduleKey) => {
-    const module = modulesList.find(m => m.key === moduleKey);
-    return module ? module.name : moduleKey;
-  };
-
   const handleAddModules = async () => {
     if (selectedModules.length === 0) {
       setSnackbar({
@@ -155,6 +143,8 @@ const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
         
         const expirationDate = new Date(now);
         expirationDate.setDate(expirationDate.getDate() + durationDays);
+        const marketExpirationDate = new Date(now);
+        marketExpirationDate.setFullYear(marketExpirationDate.getFullYear() + 1);
         
         const modulePath = `company/${empresa.id}/activeModules/${moduleKey}`;
         updates[modulePath] = {
@@ -166,7 +156,7 @@ const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
           ...(moduleKey === "moduloSMS" && { smsCount: 100 }),
           ...(moduleKey === "moduloMarket" && { 
             isPremium: true,
-            expiresAt: new Date(now.setFullYear(now.getFullYear() + 1)).toISOString()
+            expiresAt: marketExpirationDate.toISOString()
           })
         };
       });
@@ -212,7 +202,6 @@ const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
       const snapshot = await get(modulosRef);
       const data = snapshot.val();
       if (data) {
-        setModules(data);
         
         const modulesArray = Object.keys(data).map(key => ({
           key: key,

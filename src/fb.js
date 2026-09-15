@@ -37,8 +37,6 @@ export const storage = getStorage(app);
 export const db2 = getDatabase(app2);
 export const storage2 = getStorage(app2);
 
-auth.settings.appVerificationDisabledForTesting = true;
-
 const googleProvider = new GoogleAuthProvider();
 const facebookProvider = new FacebookAuthProvider();
 const appleProvider = new OAuthProvider('apple.com'); 
