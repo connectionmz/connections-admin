@@ -7,10 +7,15 @@ export const sendAuthenticatedEmail = async ({ to, subject, text }) => {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error('Sessão expirada. Entre novamente.');
   const token = await currentUser.getIdToken();
-  const response = await axios.post(ENDPOINT, { to, subject, text }, {
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-  });
-  return response.data;
+  try {
+    const response = await axios.post(ENDPOINT, { to, subject, text }, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  } catch (error) {
+    const detail = error.response?.data?.error || error.response?.data?.message;
+    throw new Error(detail ? `Servidor de email: ${detail}` : error.message);
+  }
 };
 
 export const sendEmailBatch = async ({ recipients, subject, text }) => {

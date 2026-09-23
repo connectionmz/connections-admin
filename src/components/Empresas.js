@@ -7,6 +7,14 @@ import 'jspdf-autotable';
 import { AdminPage, AdminPageHeader, EmptyState, InlineAlert, LoadingState, PrimaryButton, SecondaryButton } from './admin/ui/AdminUI';
 import { safePlainText } from '../utils/safeText';
 
+const hasActiveModule = (empresa) => {
+  const now = Date.now();
+  return Object.values(empresa.activeModules || {}).some((modulo) => {
+    if (modulo?.status !== 'active') return false;
+    return !modulo.expiresAt || new Date(modulo.expiresAt).getTime() > now;
+  });
+};
+
 const EmpresasDashboard = () => {
   // Estados para dados e filtros
   const [empresas, setEmpresas] = useState([]);
@@ -15,7 +23,8 @@ const EmpresasDashboard = () => {
   const [sectores, setSectores] = useState([]);
   const [filters, setFilters] = useState({
     sector: '',
-    provincia: ''
+    provincia: '',
+    moduleStatus: ''
   });
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
@@ -25,14 +34,18 @@ const EmpresasDashboard = () => {
     return empresas.filter((empresa) => {
       const nome = empresa.nome || '';
       const nuit = empresa.nuit || '';
-      
-      const matchesSearch = 
+
+      const matchesSearch =
         nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
         nuit.includes(searchTerm);
 
       const matchesSector = !filters.sector || empresa.sector === filters.sector;
       const matchesProvince = !filters.provincia || empresa.provincia === filters.provincia;
-      return matchesSearch && matchesSector && matchesProvince;
+      const matchesModuleStatus =
+        !filters.moduleStatus ||
+        (filters.moduleStatus === 'sem' && !hasActiveModule(empresa)) ||
+        (filters.moduleStatus === 'com' && hasActiveModule(empresa));
+      return matchesSearch && matchesSector && matchesProvince && matchesModuleStatus;
     });
   }, [empresas, searchTerm, filters]);
 
@@ -134,12 +147,13 @@ useEffect(() => {
   const stats = useMemo(() => {
     const totalEmpresas = empresas.length;
     const empresasOutro = empresas.filter(e => e.sector?.toLowerCase() === "outro").length;
+    const empresasSemModulo = empresas.filter(e => !hasActiveModule(e)).length;
     const empresasPorProvincia = provincias.map(p => ({
       provincia: p.provincia,
       count: empresas.filter(e => e.provincia === p.provincia).length
     })).sort((a, b) => b.count - a.count).slice(0, 3);
 
-    return { totalEmpresas, empresasOutro, empresasPorProvincia };
+    return { totalEmpresas, empresasOutro, empresasSemModulo, empresasPorProvincia };
   }, [empresas, provincias]);
 
   if (loading) {
@@ -165,7 +179,7 @@ useEffect(() => {
       />
       {notice && <InlineAlert type={notice.type} onClose={() => setNotice(null)}>{notice.text}</InlineAlert>}
         {/* Cards de Estatísticas */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="px-4 py-5 sm:p-6">
               <div className="flex items-center">
@@ -202,6 +216,30 @@ useEffect(() => {
             </div>
           </div>
 
+          <button
+            type="button"
+            onClick={() => handleFilterChange('moduleStatus', filters.moduleStatus === 'sem' ? '' : 'sem')}
+            className={`text-left bg-white overflow-hidden shadow rounded-lg transition ring-2 ${
+              filters.moduleStatus === 'sem' ? 'ring-amber-500' : 'ring-transparent hover:ring-amber-200'
+            }`}
+          >
+            <div className="px-4 py-5 sm:p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 bg-amber-500 rounded-md p-3">
+                  <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                  </svg>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dt className="text-sm font-medium text-gray-500 truncate">Sem módulos ativos</dt>
+                  <dd className="flex items-baseline">
+                    <div className="text-2xl font-semibold text-gray-900">{stats.empresasSemModulo}</div>
+                  </dd>
+                </div>
+              </div>
+            </div>
+          </button>
+
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="px-4 py-5 sm:p-6">
               <div className="flex items-center">
@@ -231,7 +269,7 @@ useEffect(() => {
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="px-4 py-5 sm:p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Filtrar Empresas</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="col-span-1 md:col-span-2">
                 <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
                   Pesquisar
@@ -283,10 +321,26 @@ useEffect(() => {
                   ))}
                 </select>
               </div>
+
+              <div>
+                <label htmlFor="moduleStatus" className="block text-sm font-medium text-gray-700 mb-1">
+                  Estado do módulo
+                </label>
+                <select
+                  id="moduleStatus"
+                  value={filters.moduleStatus}
+                  onChange={(e) => handleFilterChange('moduleStatus', e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="">Todas</option>
+                  <option value="sem">Sem módulos ativos</option>
+                  <option value="com">Com módulos ativos</option>
+                </select>
+              </div>
             </div>
             {(searchTerm || Object.values(filters).some(Boolean)) && (
               <div className="mt-4 flex justify-end">
-                <SecondaryButton type="button" onClick={() => { setSearchTerm(''); setFilters({ sector: '', provincia: '' }); }}>
+                <SecondaryButton type="button" onClick={() => { setSearchTerm(''); setFilters({ sector: '', provincia: '', moduleStatus: '' }); }}>
                   Limpar filtros
                 </SecondaryButton>
               </div>
@@ -322,6 +376,15 @@ useEffect(() => {
                           {empresa.sector?.toLowerCase() === "outro" && (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                               Setor Personalizado
+                            </span>
+                          )}
+                          {hasActiveModule(empresa) ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                              Módulo ativo
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                              Sem módulo ativo
                             </span>
                           )}
                         </div>

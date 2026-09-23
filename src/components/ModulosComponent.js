@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { 
-  Modal, Box, Checkbox, Button, Typography,
-  Chip, Alert, Snackbar, CircularProgress, Divider, IconButton,
-  Tooltip, Paper, Grid
+import {
+  Dialog, DialogTitle, DialogContent, DialogActions, Checkbox,
+  Chip, Alert, Snackbar, CircularProgress, IconButton,
+  Tooltip
 } from "@mui/material";
-import { 
-  getDatabase, ref, onValue, update, get 
+import {
+  getDatabase, ref, onValue, update, get
 } from "firebase/database";
-import { 
+import {
   MonetizationOn, CheckCircle, Refresh,
   Warning, Add
 } from "@mui/icons-material";
@@ -251,9 +251,9 @@ const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center p-8">
-        <CircularProgress />
-        <Typography className="ml-4">Carregando módulos...</Typography>
+      <div className="flex min-h-32 items-center justify-center gap-3 rounded-2xl border border-gray-200/90 bg-white p-8">
+        <span className="h-6 w-6 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" aria-hidden="true" />
+        <p className="text-sm font-medium text-gray-600">A carregar módulos...</p>
       </div>
     );
   }
@@ -261,105 +261,65 @@ const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
   return (
     <div className="space-y-4">
       {/* Cabeçalho */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <Typography variant="h6" className="font-semibold">
-            Gerenciamento de Módulos
-          </Typography>
-          <Typography variant="body2" color="textSecondary">
-            {activeModuleKeys.length} módulo(s) ativo(s) • {modulesList.length} disponível(eis)
-          </Typography>
+          <h3 className="text-base font-semibold text-gray-900">Gestão de Módulos</h3>
+          <p className="text-sm text-gray-500">
+            {activeModuleKeys.length} módulo(s) ativo(s) &bull; {modulesList.length} disponível(eis)
+          </p>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex items-center gap-2">
           <Tooltip title="Recarregar módulos">
             <IconButton onClick={handleRefreshModules} size="small">
               <Refresh />
             </IconButton>
           </Tooltip>
-          <Button
-            variant="contained"
-            color="primary"
+          <button
+            type="button"
             onClick={handleOpen}
-            startIcon={<Add />}
             disabled={loading || modulesList.length === 0}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Gerenciar Módulos
-          </Button>
+            <Add fontSize="small" />
+            Gerir Módulos
+          </button>
         </div>
       </div>
 
       {/* Estatísticas dos módulos */}
-      <Grid container spacing={2}>
-        <Grid item xs={6} md={3}>
-          <Paper className="p-3 text-center bg-green-50">
-            <Typography variant="caption" color="textSecondary">Ativos</Typography>
-            <Typography variant="h6" className="text-green-600">
-              {activeModuleKeys.length}
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Paper className="p-3 text-center bg-red-50">
-            <Typography variant="caption" color="textSecondary">Expirados</Typography>
-            <Typography variant="h6" className="text-red-600">
-              {expiredModules.length}
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Paper className="p-3 text-center bg-blue-50">
-            <Typography variant="caption" color="textSecondary">Disponíveis</Typography>
-            <Typography variant="h6" className="text-blue-600">
-              {modulesList.length}
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Paper className="p-3 text-center bg-yellow-50">
-            <Typography variant="caption" color="textSecondary">Total</Typography>
-            <Typography variant="h6" className="text-yellow-600">
-              {Object.keys(activeModules || {}).length}
-            </Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="rounded-2xl border border-gray-200/90 bg-white p-4 text-center shadow-[0_8px_30px_rgba(15,28,45,0.05)]">
+          <p className="text-xs font-medium text-gray-500">Ativos</p>
+          <p className="mt-1 text-xl font-bold text-emerald-600">{activeModuleKeys.length}</p>
+        </div>
+        <div className="rounded-2xl border border-gray-200/90 bg-white p-4 text-center shadow-[0_8px_30px_rgba(15,28,45,0.05)]">
+          <p className="text-xs font-medium text-gray-500">Expirados</p>
+          <p className="mt-1 text-xl font-bold text-red-600">{expiredModules.length}</p>
+        </div>
+        <div className="rounded-2xl border border-gray-200/90 bg-white p-4 text-center shadow-[0_8px_30px_rgba(15,28,45,0.05)]">
+          <p className="text-xs font-medium text-gray-500">Disponíveis</p>
+          <p className="mt-1 text-xl font-bold text-blue-600">{modulesList.length}</p>
+        </div>
+        <div className="rounded-2xl border border-gray-200/90 bg-white p-4 text-center shadow-[0_8px_30px_rgba(15,28,45,0.05)]">
+          <p className="text-xs font-medium text-gray-500">Total</p>
+          <p className="mt-1 text-xl font-bold text-amber-600">{Object.keys(activeModules || {}).length}</p>
+        </div>
+      </div>
 
       {/* Modal para gerenciar módulos */}
-      <Modal
-        open={open}
-        onClose={handleClose}
-        aria-labelledby="gerenciar-modulos-modal"
-      >
-        <Box
-          sx={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            width: { xs: '90%', sm: 500, md: 600 },
-            maxHeight: '80vh',
-            bgcolor: "background.paper",
-            borderRadius: 2,
-            boxShadow: 24,
-            p: 4,
-            overflow: 'auto'
-          }}
-        >
-          <div className="flex justify-between items-center mb-4">
-            <Typography variant="h6" component="h2">
-              Gerenciar Módulos
-            </Typography>
-            <Chip 
-              label={`${selectedModules.length} selecionados`}
-              color="primary"
-              size="small"
-            />
-          </div>
+      <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
+        <DialogTitle className="flex items-center justify-between">
+          <span className="text-lg font-semibold text-gray-900">Gerir Módulos</span>
+          <Chip
+            label={`${selectedModules.length} selecionado(s)`}
+            size="small"
+            className="!bg-blue-100 !text-blue-800"
+          />
+        </DialogTitle>
 
-          <Divider className="mb-4" />
-
+        <DialogContent dividers className="!p-4">
           {modulesList.length === 0 ? (
-            <Alert severity="info" className="mb-4">
+            <Alert severity="info">
               Nenhum módulo encontrado na base de dados. Verifique se os módulos foram configurados corretamente.
             </Alert>
           ) : (
@@ -367,88 +327,81 @@ const ModulosComponent = ({ empresa, activeModules, onModuleUpdate }) => {
               {modulesList.map((module) => {
                 const isActive = selectedModules.includes(module.key);
                 const isExpired = expiredModules.includes(module.key);
-                
+
                 return (
-                  <Paper
+                  <label
                     key={module.key}
-                    className={`p-3 transition-all ${
-                      isActive ? 'bg-blue-50 border-blue-300' : 'hover:bg-gray-50'
-                    } ${isExpired ? 'border-red-200 bg-red-50' : ''}`}
-                    variant="outlined"
+                    htmlFor={`module-${module.key}`}
+                    className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 transition ${
+                      isExpired
+                        ? 'border-red-200 bg-red-50'
+                        : isActive
+                        ? 'border-blue-300 bg-blue-50'
+                        : 'border-gray-200 bg-white hover:bg-gray-50'
+                    }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center flex-1">
-                        <Checkbox
-                          checked={isActive}
-                          onChange={() => handleCheckboxChange(module.key)}
-                          color="primary"
-                        />
-                        <div className="ml-2">
-                          <Typography variant="subtitle1" className="font-medium">
-                            {module.name}
-                            {isExpired && (
-                              <Chip
-                                size="small"
-                                label="Expirado"
-                                color="error"
-                                className="ml-2"
-                                icon={<Warning />}
-                              />
-                            )}
-                          </Typography>
-                          <Typography variant="body2" color="textSecondary">
-                            {module.description || 'Módulo disponível para assinatura'}
-                          </Typography>
-                          {module.duration && (
-                            <Typography variant="caption" color="textSecondary">
-                              Duração: {module.duration} dias
-                            </Typography>
+                    <div className="flex flex-1 items-center">
+                      <Checkbox
+                        id={`module-${module.key}`}
+                        checked={isActive}
+                        onChange={() => handleCheckboxChange(module.key)}
+                        color="primary"
+                      />
+                      <div className="ml-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900">{module.name}</span>
+                          {isExpired && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                              <Warning sx={{ fontSize: 14 }} /> Expirado
+                            </span>
                           )}
                         </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Chip
-                          icon={<MonetizationOn />}
-                          label={`${module.price} MT`}
-                          size="small"
-                          color={module.price > 0 ? "primary" : "default"}
-                        />
-                        {isActive && (
-                          <Tooltip title="Módulo ativo">
-                            <CheckCircle className="text-green-500" />
-                          </Tooltip>
+                        <p className="text-sm text-gray-500">
+                          {module.description || 'Módulo disponível para assinatura'}
+                        </p>
+                        {module.duration && (
+                          <p className="text-xs text-gray-400">Duração: {module.duration} dias</p>
                         )}
                       </div>
                     </div>
-                  </Paper>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">
+                        <MonetizationOn sx={{ fontSize: 14 }} />
+                        {module.price} MT
+                      </span>
+                      {isActive && <CheckCircle className="text-emerald-500" fontSize="small" />}
+                    </div>
+                  </label>
                 );
               })}
             </div>
           )}
+        </DialogContent>
 
-          <Divider className="my-4" />
-
-          <div className="flex justify-between items-center">
-            <Typography variant="body2" color="textSecondary">
-              Total: {selectedModules.length} módulo(s) selecionado(s)
-            </Typography>
-            <div className="space-x-2">
-              <Button onClick={handleClose} color="inherit">
-                Cancelar
-              </Button>
-              <Button
-                onClick={handleAddModules}
-                variant="contained"
-                color="primary"
-                disabled={selectedModules.length === 0 || saving || modulesList.length === 0}
-                startIcon={saving ? <CircularProgress size={20} /> : null}
-              >
-                {saving ? 'Salvando...' : 'Salvar Alterações'}
-              </Button>
-            </div>
+        <DialogActions className="!justify-between !px-6 !py-4">
+          <span className="text-sm text-gray-500">
+            Total: {selectedModules.length} módulo(s) selecionado(s)
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleAddModules}
+              disabled={selectedModules.length === 0 || saving || modulesList.length === 0}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving && <CircularProgress size={16} sx={{ color: 'white' }} />}
+              {saving ? 'A guardar...' : 'Guardar Alterações'}
+            </button>
           </div>
-        </Box>
-      </Modal>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar para feedback */}
       <Snackbar
