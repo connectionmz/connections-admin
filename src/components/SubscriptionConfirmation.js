@@ -28,11 +28,13 @@ import sendEmail from './utils/sendMail';
 
 const SubscriptionConfirmation = ({ user }) => {
   const [companies, setCompanies] = useState([]);
+  const [provincias, setProvincias] = useState([]);
   const [selectedCompanies, setSelectedCompanies] = useState([]);
   const [modules, setModules] = useState([]);
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [emailFailures, setEmailFailures] = useState(0);
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [notes, setNotes] = useState('');
@@ -40,19 +42,23 @@ const SubscriptionConfirmation = ({ user }) => {
   const [companySearch, setCompanySearch] = useState('');
   const [selectedProvince, setSelectedProvince] = useState('');
   const [selectedSector, setSelectedSector] = useState('');
+  const [moduleStatusFilter, setModuleStatusFilter] = useState('');
 
   // Load companies (já vem com activeModules embutido, pois é
   // company/{id}/activeModules), modules, provinces and sectors.
   useEffect(() => {
     const companiesRef = ref(db, 'company');
     const modulesRef = ref(db, 'modules/modulos');
+    const provinciasRef = ref(db, 'provincias');
 
     const unsubscribeCompanies = onValue(companiesRef, (snapshot) => {
       const data = snapshot.val();
-      const companiesArray = data ? Object.keys(data).map(key => ({
-        id: key,
-        ...data[key]
-      })) : [];
+      const companiesArray = data ? Object.keys(data)
+        .filter(key => data[key]?.type !== 'singular')
+        .map(key => ({
+          id: key,
+          ...data[key]
+        })) : [];
       setCompanies(companiesArray);
     });
 
@@ -64,9 +70,18 @@ const SubscriptionConfirmation = ({ user }) => {
       })) : []);
     });
 
+    // Lista canónica das 11 províncias (mesma fonte usada em Empresas.js e
+    // nos formulários de concurso/vaga), em vez de derivar do que as
+    // empresas têm gravado — isso deixava a lista incompleta e sem ordem.
+    const unsubscribeProvincias = onValue(provinciasRef, (snapshot) => {
+      const data = snapshot.val();
+      setProvincias(data ? data.map(p => p.provincia).filter(Boolean) : []);
+    });
+
     return () => {
       unsubscribeCompanies();
       unsubscribeModules();
+      unsubscribeProvincias();
     };
   }, []);
 
@@ -79,6 +94,11 @@ const SubscriptionConfirmation = ({ user }) => {
     const moduleData = company?.activeModules?.[moduleKey];
     return isActiveModule(moduleData);
   };
+
+  // Para o filtro "Estado do módulo": tem pelo menos um módulo ativo, seja
+  // qual for (independente do que está no carrinho de ativação atual).
+  const companyHasAnyActiveModule = (company) =>
+    Object.values(company.activeModules || {}).some(isActiveModule);
 
   // Trial é identificado pelo subscriptionType/activationType gravados na ativação.
   const companyHasTrial = (companyId, moduleKey) => {
@@ -118,8 +138,12 @@ const SubscriptionConfirmation = ({ user }) => {
     
     const matchesProvince = !selectedProvince || companyProvince === selectedProvince;
     const matchesSector = !selectedSector || companySector === selectedSector;
-    
-    return matchesSearch && matchesProvince && matchesSector;
+    const matchesModuleStatus =
+      !moduleStatusFilter ||
+      (moduleStatusFilter === 'sem' && !companyHasAnyActiveModule(company)) ||
+      (moduleStatusFilter === 'com' && companyHasAnyActiveModule(company));
+
+    return matchesSearch && matchesProvince && matchesSector && matchesModuleStatus;
   });
 
   // Filter modules
@@ -132,13 +156,10 @@ const SubscriptionConfirmation = ({ user }) => {
     setSelectedProvince('');
     setSelectedSector('');
     setCompanySearch('');
+    setModuleStatusFilter('');
   };
 
-  const availableProvinces = [...new Set(
-    companies
-      .map(company => company.provincia || company.province)
-      .filter(province => province && province.trim() !== '')
-  )];
+  const availableProvinces = provincias;
 
   const availableSectors = [...new Set(
     companies
@@ -441,6 +462,7 @@ const handleConfirmSubscription = async () => {
       }
 
       // ENVIAR EMAILS PARA CADA EMPRESA
+      let failedEmails = 0;
       for (const subscriptionInfo of createdSubscriptions) {
         const company = subscriptionInfo.company;
         const companyEmail = company.email;
@@ -540,9 +562,11 @@ const handleConfirmSubscription = async () => {
           console.log(`✅ Email enviado para ${companyEmail}`);
         } else {
           console.warn(`⚠️ Falha no email para ${companyEmail}`);
+          failedEmails += 1;
         }
       }
 
+      setEmailFailures(failedEmails);
       setSuccess(true);
       setConfirmOpen(false);
       
@@ -669,7 +693,7 @@ const handleConfirmSubscription = async () => {
               <div className="p-6">
                 {/* Filters */}
                 <div className="mb-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <FaSearch className="text-gray-400" />
@@ -682,7 +706,7 @@ const handleConfirmSubscription = async () => {
                         onChange={(e) => setCompanySearch(e.target.value)}
                       />
                     </div>
-                    
+
                     <select
                       value={selectedProvince}
                       onChange={(e) => setSelectedProvince(e.target.value)}
@@ -707,6 +731,16 @@ const handleConfirmSubscription = async () => {
                           {sector}
                         </option>
                       ))}
+                    </select>
+
+                    <select
+                      value={moduleStatusFilter}
+                      onChange={(e) => setModuleStatusFilter(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                    >
+                      <option value="">Estado do módulo: Todas</option>
+                      <option value="sem">Sem módulos ativos</option>
+                      <option value="com">Com módulos ativos</option>
                     </select>
                   </div>
 
@@ -783,13 +817,22 @@ const handleConfirmSubscription = async () => {
                                 </div>
                               </div>
                               <div className="flex space-x-2">
+                                {companyHasAnyActiveModule(company) ? (
+                                  <span className="bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full text-xs font-medium">
+                                    Com módulo ativo
+                                  </span>
+                                ) : (
+                                  <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded-full text-xs font-medium">
+                                    Sem módulo ativo
+                                  </span>
+                                )}
                                 {hasActiveSubscription && (
                                   <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-medium">
-                                    Módulo Ativo
+                                    Já tem este módulo
                                   </span>
                                 )}
                                 {hasActiveTrial && (
-                                  <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">
+                                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
                                     Trial Utilizado
                                   </span>
                                 )}
@@ -1084,6 +1127,16 @@ const handleConfirmSubscription = async () => {
                           Subscrições e trials confirmados com sucesso para {selectedCompanies.length} empresa(s)!
                         </span>
                       </div>
+                    </div>
+                  )}
+
+                  {emailFailures > 0 && (
+                    <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start justify-between gap-3" role="alert">
+                      <span className="text-amber-900 text-sm">
+                        Os módulos foram ativados, mas <strong>{emailFailures}</strong> email(s) de confirmação
+                        não foram enviados. Avise as empresas manualmente e verifique o serviço de email.
+                      </span>
+                      <button type="button" onClick={() => setEmailFailures(0)} className="font-bold text-amber-900" aria-label="Fechar aviso">×</button>
                     </div>
                   )}
 

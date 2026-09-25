@@ -6,14 +6,9 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { AdminPage, AdminPageHeader, EmptyState, InlineAlert, LoadingState, PrimaryButton, SecondaryButton } from './admin/ui/AdminUI';
 import { safePlainText } from '../utils/safeText';
+import { isActiveModule } from '../domain/subscriptions';
 
-const hasActiveModule = (empresa) => {
-  const now = Date.now();
-  return Object.values(empresa.activeModules || {}).some((modulo) => {
-    if (modulo?.status !== 'active') return false;
-    return !modulo.expiresAt || new Date(modulo.expiresAt).getTime() > now;
-  });
-};
+const hasActiveModule = (empresa) => Object.values(empresa.activeModules || {}).some(isActiveModule);
 
 const EmpresasDashboard = () => {
   // Estados para dados e filtros
