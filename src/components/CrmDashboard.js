@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { onValue, push, ref, set, update } from 'firebase/database';
 import { Link, useSearchParams } from 'react-router-dom';
 import { auth, db } from '../fb';
+import { lastContactByCompany } from '../domain/contacts';
 import { calculateCrmMetrics, companyCrmSummary, CRM_STAGE_LABEL, normalizeCrmCollections } from '../domain/crm';
+import { buildEngagementList, reactivationStats } from '../domain/engagement';
 import { AdminCard, AdminPage, AdminPageHeader, EmptyState, InlineAlert, LoadingState, PrimaryButton, SecondaryButton } from './admin/ui/AdminUI';
 import CrmActivitiesPanel from './crm/CrmActivitiesPanel';
 import CrmBulkFollowUp from './crm/CrmBulkFollowUp';
@@ -28,8 +30,8 @@ const readDeepLink = params => {
 const CrmDashboard = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [deepLink, setDeepLink] = useState(() => readDeepLink(searchParams));
-  const [raw, setRaw] = useState({ companies: {}, payments: {}, crm: {} });
-  const [ready, setReady] = useState({ companies: false, payments: false, crm: false });
+  const [raw, setRaw] = useState({ companies: {}, payments: {}, crm: {}, accessLogs: {}, loadedAt: Date.now() });
+  const [ready, setReady] = useState({ companies: false, payments: false, crm: false, accessLogs: false });
   const [activeTab, setActiveTab] = useState(deepLink.tab);
   const [search, setSearch] = useState('');
   const [relationship, setRelationship] = useState('all');
@@ -41,14 +43,16 @@ const CrmDashboard = () => {
 
   useEffect(() => {
     const subscriptions = [['companies', 'company'], ['payments', 'payments'], ['crm', 'adminCrm']].map(([key, path]) => onValue(ref(db, path), snapshot => {
-      setRaw(previous => ({ ...previous, [key]: snapshot.val() || {} }));
+      setRaw(previous => ({ ...previous, [key]: snapshot.val() || {}, loadedAt: Date.now() }));
       setReady(previous => ({ ...previous, [key]: true }));
     }, () => { setReady(previous => ({ ...previous, [key]: true })); setFeedback({ type: 'error', message: `Não foi possível carregar ${path}.` }); }));
     return () => subscriptions.forEach(unsubscribe => unsubscribe());
   }, []);
 
-  const data = useMemo(() => normalizeCrmCollections(raw.companies, raw.payments, raw.crm), [raw]);
+  const data = useMemo(() => normalizeCrmCollections(raw.companies, raw.payments, raw.crm), [raw.companies, raw.payments, raw.crm]);
   const metrics = useMemo(() => calculateCrmMetrics(data), [data]);
+  const engagement = useMemo(() => buildEngagementList(raw.companies, raw.accessLogs, { now: raw.loadedAt }), [raw.companies, raw.accessLogs, raw.loadedAt]);
+  const reactivation = useMemo(() => reactivationStats(engagement, lastContactByCompany(raw.crm), raw.loadedAt), [engagement, raw.crm, raw.loadedAt]);
   const allCompanies = useMemo(() => data.companies.map(company => companyCrmSummary(company, data.payments, data.accounts[company.id])), [data]);
   const companies = useMemo(() => allCompanies.filter(company => {
     const term = search.trim().toLowerCase();
@@ -96,7 +100,7 @@ const CrmDashboard = () => {
 
     <div id={`crm-panel-${activeTab}`} role="tabpanel" aria-labelledby={`crm-tab-${activeTab}`}>
       {activeTab === 'overview' && <div className="space-y-6"><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Indicadores comerciais">
-        <Metric label="MRR estimado" value={money(metrics.mrr)} help="Só módulos associados a pagamentos reais" /><Metric label="Clientes pagos" value={metrics.paidCustomers} help="Empresas com receita efetivamente recebida" /><Metric label="Taxa de renovação" value={`${metrics.renewalRate.toFixed(1)}%`} help="Assinaturas com mais de um pagamento real" /><Metric label="Recebido este mês" value={money(metrics.revenueThisMonth)} help="Exclui trials e ativações manuais" /><Metric label="Por receber" value={money(metrics.pendingRevenue)} help={`${metrics.pendingPayments} pagamento(s) pendente(s)`} /><Metric label="Cancelamentos" value={metrics.cancellations} help="Pagamentos e documentos cancelados" /><Metric label="Renovações em 30 dias" value={metrics.renewalsDue} help="Módulos a expirar" /><Metric label="Pipeline ponderado" value={money(metrics.weightedPipeline)} help={`${metrics.openOpportunities} oportunidade(s)`} /><Metric label="Empresas" value={metrics.totalCompanies} help="Carteira cadastrada" /><Metric label="Pipeline bruto" value={money(metrics.pipelineValue)} help="Valor em negociação" /><Metric label="Atividades vencidas" value={metrics.overdueActivities} help="Contactos prioritários" />
+        <Metric label="MRR estimado" value={money(metrics.mrr)} help="Só módulos associados a pagamentos reais" /><Metric label="Clientes pagos" value={metrics.paidCustomers} help="Empresas com receita efetivamente recebida" /><Metric label="Taxa de renovação" value={`${metrics.renewalRate.toFixed(1)}%`} help="Assinaturas com mais de um pagamento real" /><Metric label="Recebido este mês" value={money(metrics.revenueThisMonth)} help="Exclui trials e ativações manuais" /><Metric label="Por receber" value={money(metrics.pendingRevenue)} help={`${metrics.pendingPayments} pagamento(s) pendente(s)`} /><Metric label="Cancelamentos" value={metrics.cancellations} help="Pagamentos e documentos cancelados" /><Metric label="Renovações em 30 dias" value={metrics.renewalsDue} help="Módulos a expirar" /><Metric label="Pipeline ponderado" value={money(metrics.weightedPipeline)} help={`${metrics.openOpportunities} oportunidade(s)`} /><Metric label="Empresas" value={metrics.totalCompanies} help="Carteira cadastrada" /><Metric label="Pipeline bruto" value={money(metrics.pipelineValue)} help="Valor em negociação" /><Metric label="Atividades vencidas" value={metrics.overdueActivities} help="Contactos prioritários" /><Metric label="Reativadas após contacto (30 dias)" value={`${reactivation.rate.toFixed(1)}%`} help={`${reactivation.reactivated} de ${reactivation.contacted} empresa(s) offline contactada(s)`} />
       </section><AdminCard className="overflow-hidden"><div className="border-b border-gray-200 p-5"><h2 className="text-lg font-bold">Renovações nos próximos 30 dias</h2><p className="text-sm text-gray-500">Prioridades comerciais para retenção.</p></div>{renewals.length === 0 ? <EmptyState title="Sem renovações próximas" description="Nenhum módulo pago expira neste período." /> : <div className="divide-y">{renewals.slice(0, 10).map(({ company, moduleKey, module }) => <article key={`${company.id}:${moduleKey}`} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><h3 className="truncate font-semibold">{company.nome || company.email || 'Empresa'}</h3><p className="text-sm text-gray-500">{module.moduleName || moduleKey} · expira em {new Date(Number(module.expiresAt) || module.expiresAt).toLocaleDateString('pt-MZ')}</p></div><SecondaryButton type="button" onClick={() => openRenewal(company, moduleKey, module)}>Criar oportunidade</SecondaryButton></article>)}</div>}</AdminCard></div>}
 
       {activeTab === 'companies' && <AdminCard className="overflow-hidden"><div className="flex flex-col gap-3 border-b p-5 sm:flex-row"><input aria-label="Pesquisar empresas" value={search} onChange={event => setSearch(event.target.value)} className="flex-1 rounded-lg border px-3 py-2" placeholder="Pesquisar nome, email, sector ou província" /><select aria-label="Filtrar relacionamento" value={relationship} onChange={event => setRelationship(event.target.value)} className="rounded-lg border px-3 py-2"><option value="all">Todos os relacionamentos</option>{Object.entries(RELATIONSHIPS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
@@ -104,7 +108,7 @@ const CrmDashboard = () => {
 
       {activeTab === 'pipeline' && <AdminCard className="overflow-hidden"><div className="flex justify-between border-b p-5"><div><h2 className="text-lg font-bold">Pipeline comercial</h2><p className="text-sm text-gray-500">Oportunidades recentes.</p></div><PrimaryButton onClick={() => setShowOpportunity(true)}>Adicionar</PrimaryButton></div>{data.opportunities.length === 0 ? <EmptyState title="Pipeline vazio" description="Crie a primeira oportunidade." /> : <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">{data.opportunities.slice().sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0)).map(item => <article key={item.id} className="rounded-xl border p-4"><span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{CRM_STAGE_LABEL[item.stage] || item.stage}</span><h3 className="mt-3 font-bold">{item.title}</h3><p className="text-sm text-gray-500">{data.companies.find(company => company.id === item.companyId)?.nome || 'Empresa'}</p><p className="mt-3 text-lg font-bold">{money(item.value)}</p></article>)}</div>}</AdminCard>}
       {activeTab === 'activities' && <CrmActivitiesPanel companies={data.companies} activities={data.activities} />}
-      {activeTab === 'followup' && <CrmBulkFollowUp companies={allCompanies} renewals={renewals} invoices={data.invoices} initialAudience={deepLink.audience} initialCompanyIds={deepLink.companyIds} onInitialApplied={consumeDeepLink} />}
+      {activeTab === 'followup' && <CrmBulkFollowUp companies={allCompanies} renewals={renewals} invoices={data.invoices} engagement={engagement} initialAudience={deepLink.audience} initialCompanyIds={deepLink.companyIds} onInitialApplied={consumeDeepLink} />}
       {activeTab === 'billing' && <CrmBillingPanel companies={data.companies} payments={data.payments} invoices={data.invoices} />}
     </div>
 

@@ -1,17 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
 import { push, ref, set, update } from 'firebase/database';
 import { auth, db } from '../../fb';
+import { companyEmail } from '../../domain/contacts';
+import { ENGAGEMENT } from '../../domain/engagement';
 import { selectFollowUpRecipients } from '../../domain/followUps';
 import { sendEmailBatch } from '../../services/emailNotifications';
-import { safePlainText } from '../../utils/safeText';
+import { safeMultilineText, safePlainText } from '../../utils/safeText';
 import { effectiveInvoiceStatus } from '../../domain/billing';
 import { AdminCard, EmptyState, InlineAlert, PrimaryButton } from '../admin/ui/AdminUI';
 
-const initialForm = { companyIds: [], sectors: [], provinces: [], subject: '', message: '' };
+const initialForm = { audience: '', companyIds: [], sectors: [], provinces: [], subject: '', message: '' };
 const selected = event => [...event.target.selectedOptions].map(option => option.value);
 const normalize = value => String(value || '').trim().toLowerCase();
 
-const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], initialCompanyIds = [], onInitialApplied }) => {
+const SIGNATURE = 'Atenciosamente,\nEquipa Connection Mozambique';
+const PRESETS = {
+  renewals: { subject: 'Renovação próxima dos seus serviços', message: 'Olá,\n\nA sua subscrição aproxima-se da data de renovação. Estamos disponíveis para ajudar a garantir a continuidade dos serviços.\n\nAtenciosamente,\nConnection Mozambique' },
+  overdue: { subject: 'Pagamento pendente', message: 'Olá,\n\nIdentificámos um documento de cobrança vencido associado à sua empresa. Entre em contacto connosco caso necessite de apoio ou esclarecimentos.\n\nAtenciosamente,\nConnection Mozambique' },
+  prospects: { subject: 'Soluções para a sua empresa', message: 'Olá,\n\nGostaríamos de apresentar as soluções da Connection Mozambique que podem apoiar o crescimento e a visibilidade da sua empresa.\n\nAtenciosamente,\nConnection Mozambique' },
+  [ENGAGEMENT.NEVER]: { subject: 'Comece a usar a Connection Mozambique', message: `Olá {{empresa}},\n\nA sua conta está ativa, mas ainda não fez o primeiro acesso. Entre em https://app.connectionmozambique.com/auth e complete o perfil da empresa para aparecer nas pesquisas, receber cotações e ver concursos.\n\nPrecisa de ajuda? Responda a este email ou fale connosco pelo WhatsApp.\n\n${SIGNATURE}` },
+  [ENGAGEMENT.OFFLINE]: { subject: 'Novidades à sua espera na Connection Mozambique', message: `Olá {{empresa}},\n\nNotámos que não acede à plataforma há algum tempo. Desde então foram publicados novos concursos e pedidos de cotação no seu sector. Entre em https://app.connectionmozambique.com/auth para os consultar.\n\n${SIGNATURE}` },
+  [ENGAGEMENT.AT_RISK]: { subject: 'Precisa de ajuda com a plataforma?', message: `Olá {{empresa}},\n\nEstamos disponíveis para ajudar a tirar o máximo partido da Connection Mozambique. Responda a este email e marcamos uma demonstração rápida.\n\n${SIGNATURE}` },
+};
+const QUICK_AUDIENCES = [
+  ['renewals', 'Renovações'], ['overdue', 'Pagamentos vencidos'], ['prospects', 'Prospectos'],
+  [ENGAGEMENT.OFFLINE, 'Offline +7 dias'], [ENGAGEMENT.AT_RISK, 'Em risco'], [ENGAGEMENT.NEVER, 'Nunca acederam'],
+];
+
+const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], engagement = [], initialAudience = '', initialCompanyIds = [], onInitialApplied }) => {
   const [form, setForm] = useState(initialForm);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -23,38 +39,46 @@ const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], initialCompa
     return matchesSector && matchesProvince;
   }), [companies, form.sectors, form.provinces]);
   const recipients = useMemo(() => selectFollowUpRecipients(companies, form), [companies, form]);
+  const withoutEmail = useMemo(() => {
+    const ids = new Set(form.companyIds);
+    return companies.filter(company => ids.has(company.id) && !companyEmail(company)).length;
+  }, [companies, form.companyIds]);
+  const audiences = useMemo(() => {
+    const byStatus = status => engagement.filter(item => item.status === status).map(item => item.id);
+    return {
+      renewals: [...new Set(renewals.map(item => item.company.id))],
+      overdue: [...new Set(invoices.filter(invoice => effectiveInvoiceStatus(invoice) === 'overdue').map(invoice => invoice.companyId))],
+      prospects: companies.filter(company => company.relationshipStatus === 'prospect').map(company => company.id),
+      [ENGAGEMENT.OFFLINE]: byStatus(ENGAGEMENT.OFFLINE),
+      [ENGAGEMENT.AT_RISK]: byStatus(ENGAGEMENT.AT_RISK),
+      [ENGAGEMENT.NEVER]: byStatus(ENGAGEMENT.NEVER),
+    };
+  }, [companies, engagement, invoices, renewals]);
+
+  const applyPreset = type => {
+    setForm({ ...initialForm, audience: type, companyIds: audiences[type], ...PRESETS[type] });
+    setFeedback(audiences[type].length ? null : { type: 'info', message: 'Não existem empresas neste público neste momento.' });
+  };
 
   useEffect(() => {
-    if (initialCompanyIds.length) setForm(value => ({ ...value, companyIds: initialCompanyIds }));
+    // Deep-link vindo do ecrã "Empresas offline": empresas escolhidas e/ou público.
+    const audience = PRESETS[initialAudience] ? initialAudience : '';
+    if (initialCompanyIds.length) setForm({ ...initialForm, ...(PRESETS[audience] || {}), audience, companyIds: initialCompanyIds });
+    else if (audience) applyPreset(audience);
     onInitialApplied?.();
     // Aplica o deep-link só ao abrir o separador.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const audiences = useMemo(() => ({
-    renewals: [...new Set(renewals.map(item => item.company.id))],
-    overdue: [...new Set(invoices.filter(invoice => effectiveInvoiceStatus(invoice) === 'overdue').map(invoice => invoice.companyId))],
-    prospects: companies.filter(company => company.relationshipStatus === 'prospect').map(company => company.id),
-  }), [companies, invoices, renewals]);
 
   const changeProvinces = event => {
     const next = selected(event);
     const valid = new Set(companies.filter(item => next.length === 0 || next.some(value => normalize(value) === normalize(item.provincia || item.province))).map(item => normalize(item.sector)));
-    setForm(value => ({ ...value, provinces: next, sectors: value.sectors.filter(sector => valid.has(normalize(sector))), companyIds: [] }));
+    setForm(value => ({ ...value, audience: '', provinces: next, sectors: value.sectors.filter(sector => valid.has(normalize(sector))), companyIds: [] }));
   };
   const changeSectors = event => {
     const next = selected(event);
     const valid = new Set(companies.filter(item => next.length === 0 || next.some(value => normalize(value) === normalize(item.sector))).map(item => normalize(item.provincia || item.province)));
-    setForm(value => ({ ...value, sectors: next, provinces: value.provinces.filter(province => valid.has(normalize(province))), companyIds: [] }));
-  };
-
-  const applyPreset = type => {
-    const presets = {
-      renewals: { subject: 'Renovação próxima dos seus serviços', message: 'Olá,\n\nA sua subscrição aproxima-se da data de renovação. Estamos disponíveis para ajudar a garantir a continuidade dos serviços.\n\nAtenciosamente,\nConnection Mozambique' },
-      overdue: { subject: 'Pagamento pendente', message: 'Olá,\n\nIdentificámos um documento de cobrança vencido associado à sua empresa. Entre em contacto connosco caso necessite de apoio ou esclarecimentos.\n\nAtenciosamente,\nConnection Mozambique' },
-      prospects: { subject: 'Soluções para a sua empresa', message: 'Olá,\n\nGostaríamos de apresentar as soluções da Connection Mozambique que podem apoiar o crescimento e a visibilidade da sua empresa.\n\nAtenciosamente,\nConnection Mozambique' },
-    };
-    setForm({ ...initialForm, companyIds: audiences[type], ...presets[type] });
-    setFeedback(audiences[type].length ? null : { type: 'info', message: 'Não existem empresas neste público neste momento.' });
+    setForm(value => ({ ...value, audience: '', sectors: next, provinces: value.provinces.filter(province => valid.has(normalize(province))), companyIds: [] }));
   };
 
   const send = async event => {
@@ -66,9 +90,9 @@ const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], initialCompa
     const createdAt = Date.now();
     try {
       const subject = safePlainText(form.subject, 140);
-      const message = safePlainText(form.message, 5000);
+      const message = safeMultilineText(form.message, 5000);
       await set(campaignRef, {
-        subject, message, status: 'sending', channel: 'email',
+        subject, message, status: 'sending', channel: 'email', audience: form.audience || null,
         filters: { companyIds: form.companyIds, sectors: form.sectors, provinces: form.provinces },
         recipientCount: recipients.length, createdAt, createdBy: auth.currentUser?.uid || null,
       });
@@ -98,12 +122,14 @@ const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], initialCompa
     <div className="border-b border-gray-200 p-5"><h2 className="text-lg font-bold text-gray-950">Follow-up por email</h2><p className="text-sm text-gray-500">Defina o segmento. Província e sector filtram-se mutuamente e limitam as empresas disponíveis.</p></div>
     <form onSubmit={send} className="grid gap-5 p-5 lg:grid-cols-3">
       {feedback && <div className="lg:col-span-3"><InlineAlert type={feedback.type} onClose={() => setFeedback(null)}>{feedback.message}</InlineAlert></div>}
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 lg:col-span-3"><p className="text-sm font-bold text-gray-900">Públicos rápidos</p><p className="mt-1 text-xs text-gray-500">Carrega o público e uma mensagem editável. Confirme sempre os destinatários antes de enviar.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => applyPreset('renewals')} className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold">Renovações ({audiences.renewals.length})</button><button type="button" onClick={() => applyPreset('overdue')} className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold">Pagamentos vencidos ({audiences.overdue.length})</button><button type="button" onClick={() => applyPreset('prospects')} className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold">Prospectos ({audiences.prospects.length})</button></div></div>
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 lg:col-span-3"><p className="text-sm font-bold text-gray-900">Públicos rápidos</p><p className="mt-1 text-xs text-gray-500">Carrega o público e uma mensagem editável. Confirme sempre os destinatários antes de enviar.</p><div className="mt-3 flex flex-wrap gap-2">{QUICK_AUDIENCES.map(([type, label]) => <button key={type} type="button" onClick={() => applyPreset(type)} aria-pressed={form.audience === type} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${form.audience === type ? 'border-blue-700 bg-blue-50 text-blue-800' : 'bg-white'}`}>{label} ({audiences[type].length})</button>)}</div></div>
       <label className="text-sm font-semibold">1. Províncias<span className="mt-1 block text-xs font-normal text-gray-500">Use Ctrl/Cmd para selecionar várias.</span><select multiple value={form.provinces} onChange={changeProvinces} className="mt-2 h-40 w-full rounded-lg border border-gray-300 p-2">{provinces.map(value => <option key={value}>{safePlainText(value)}</option>)}</select></label>
       <label className="text-sm font-semibold">2. Sectores<span className="mt-1 block text-xs font-normal text-gray-500">{sectors.length} disponível(is) para as províncias.</span><select multiple value={form.sectors} onChange={changeSectors} className="mt-2 h-40 w-full rounded-lg border border-gray-300 p-2">{sectors.map(value => <option key={value}>{safePlainText(value)}</option>)}</select></label>
       <label className="text-sm font-semibold">3. Empresas específicas<span className="mt-1 block text-xs font-normal text-gray-500">{filteredCompanies.length} dentro do segmento. Se escolher empresas, o envio fica limitado a elas.</span><select multiple value={form.companyIds} onChange={event => setForm(value => ({ ...value, companyIds: selected(event) }))} className="mt-2 h-40 w-full rounded-lg border border-gray-300 p-2">{filteredCompanies.map(company => <option key={company.id} value={company.id}>{safePlainText(company.nome || company.email || 'Empresa')}</option>)}</select></label>
       <label className="text-sm font-semibold lg:col-span-3">Assunto<input required maxLength="140" value={form.subject} onChange={event => setForm(value => ({ ...value, subject: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
-      <label className="text-sm font-semibold lg:col-span-3">Mensagem<textarea required maxLength="5000" rows="7" value={form.message} onChange={event => setForm(value => ({ ...value, message: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
+      <label className="text-sm font-semibold lg:col-span-3">Mensagem<span className="mt-1 block text-xs font-normal text-gray-500">Use {'{{empresa}}'} para inserir o nome de cada empresa.</span><textarea required maxLength="5000" rows="9" value={form.message} onChange={event => setForm(value => ({ ...value, message: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
+      {recipients.length > 0 && <div className="rounded-xl border border-gray-200 lg:col-span-3"><p className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-bold text-gray-900">Destinatários ({recipients.length})</p><ul className="max-h-64 divide-y divide-gray-100 overflow-y-auto">{recipients.map(recipient => <li key={recipient.email} className="flex flex-col px-4 py-2 text-sm sm:flex-row sm:justify-between sm:gap-4"><span className="font-semibold text-gray-900">{safePlainText(recipient.nome || 'Empresa sem nome', 150)}</span><span className="text-gray-600">{recipient.email}</span></li>)}</ul></div>}
+      {withoutEmail > 0 && <div className="lg:col-span-3"><InlineAlert type="warning">{withoutEmail} empresa(s) escolhida(s) não têm email válido e não vão receber a mensagem.</InlineAlert></div>}
       <div className="flex flex-col gap-3 lg:col-span-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-gray-600"><strong>{recipients.length}</strong> destinatário(s) únicos com email válido.</p><PrimaryButton type="submit" disabled={sending || recipients.length === 0}>{sending ? 'A enviar...' : 'Enviar follow-up'}</PrimaryButton></div>
       {companies.length === 0 && <div className="lg:col-span-3"><EmptyState title="Sem empresas" description="Não existem empresas disponíveis para segmentação." /></div>}
     </form>

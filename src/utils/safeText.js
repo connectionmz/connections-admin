@@ -24,3 +24,13 @@ export const safeFileSegment = value => safePlainText(value, 100)
   .replace(/[\u0300-\u036f]/g, '')
   .replace(/[^a-z0-9_-]+/gi, '_')
   .replace(/^_+|_+$/g, '') || 'ficheiro';
+
+// Como safePlainText, mas mantém as quebras de linha (corpo de emails).
+export const safeMultilineText = (value, maxLength = 5000) => String(value ?? '')
+  .replace(/\r\n?/g, '\n')
+  .split('\n')
+  .map(line => safePlainText(line, maxLength))
+  .join('\n')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim()
+  .slice(0, maxLength);
