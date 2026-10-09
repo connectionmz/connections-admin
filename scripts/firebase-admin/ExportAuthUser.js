@@ -1,9 +1,11 @@
+// Script manual de migração (Node), não faz parte da app React.
+// Instale firebase-admin à parte (npm i firebase-admin --no-save) e nunca guarde a chave nem o users.json no repositório.
 const admin = require('firebase-admin');
 const fs = require('fs');
 
 // Inicialize o app do projeto de origem
 const sourceApp = admin.initializeApp({
-  credential: admin.credential.cert('../connectionmozambique-23a1b-firebase-adminsdk-fbsvc-9b0dbadb7f.json'),
+  credential: admin.credential.applicationDefault(), // GOOGLE_APPLICATION_CREDENTIALS=/caminho/fora/do/repo/chave.json
 databaseURL: "https://connectionmozambique-23a1b-default-rtdb.firebaseio.com"
 }, 'source');
 
