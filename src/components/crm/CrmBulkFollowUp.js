@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { push, ref, set, update } from 'firebase/database';
 import { auth, db } from '../../fb';
 import { selectFollowUpRecipients } from '../../domain/followUps';
@@ -11,7 +11,7 @@ const initialForm = { companyIds: [], sectors: [], provinces: [], subject: '', m
 const selected = event => [...event.target.selectedOptions].map(option => option.value);
 const normalize = value => String(value || '').trim().toLowerCase();
 
-const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [] }) => {
+const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], initialCompanyIds = [], onInitialApplied }) => {
   const [form, setForm] = useState(initialForm);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -23,6 +23,13 @@ const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [] }) => {
     return matchesSector && matchesProvince;
   }), [companies, form.sectors, form.provinces]);
   const recipients = useMemo(() => selectFollowUpRecipients(companies, form), [companies, form]);
+
+  useEffect(() => {
+    if (initialCompanyIds.length) setForm(value => ({ ...value, companyIds: initialCompanyIds }));
+    onInitialApplied?.();
+    // Aplica o deep-link só ao abrir o separador.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const audiences = useMemo(() => ({
     renewals: [...new Set(renewals.map(item => item.company.id))],
     overdue: [...new Set(invoices.filter(invoice => effectiveInvoiceStatus(invoice) === 'overdue').map(invoice => invoice.companyId))],
@@ -94,7 +101,7 @@ const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [] }) => {
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 lg:col-span-3"><p className="text-sm font-bold text-gray-900">Públicos rápidos</p><p className="mt-1 text-xs text-gray-500">Carrega o público e uma mensagem editável. Confirme sempre os destinatários antes de enviar.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => applyPreset('renewals')} className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold">Renovações ({audiences.renewals.length})</button><button type="button" onClick={() => applyPreset('overdue')} className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold">Pagamentos vencidos ({audiences.overdue.length})</button><button type="button" onClick={() => applyPreset('prospects')} className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold">Prospectos ({audiences.prospects.length})</button></div></div>
       <label className="text-sm font-semibold">1. Províncias<span className="mt-1 block text-xs font-normal text-gray-500">Use Ctrl/Cmd para selecionar várias.</span><select multiple value={form.provinces} onChange={changeProvinces} className="mt-2 h-40 w-full rounded-lg border border-gray-300 p-2">{provinces.map(value => <option key={value}>{safePlainText(value)}</option>)}</select></label>
       <label className="text-sm font-semibold">2. Sectores<span className="mt-1 block text-xs font-normal text-gray-500">{sectors.length} disponível(is) para as províncias.</span><select multiple value={form.sectors} onChange={changeSectors} className="mt-2 h-40 w-full rounded-lg border border-gray-300 p-2">{sectors.map(value => <option key={value}>{safePlainText(value)}</option>)}</select></label>
-      <label className="text-sm font-semibold">3. Empresas específicas<span className="mt-1 block text-xs font-normal text-gray-500">{filteredCompanies.length} dentro do segmento.</span><select multiple value={form.companyIds} onChange={event => setForm(value => ({ ...value, companyIds: selected(event) }))} className="mt-2 h-40 w-full rounded-lg border border-gray-300 p-2">{filteredCompanies.map(company => <option key={company.id} value={company.id}>{safePlainText(company.nome || company.email || 'Empresa')}</option>)}</select></label>
+      <label className="text-sm font-semibold">3. Empresas específicas<span className="mt-1 block text-xs font-normal text-gray-500">{filteredCompanies.length} dentro do segmento. Se escolher empresas, o envio fica limitado a elas.</span><select multiple value={form.companyIds} onChange={event => setForm(value => ({ ...value, companyIds: selected(event) }))} className="mt-2 h-40 w-full rounded-lg border border-gray-300 p-2">{filteredCompanies.map(company => <option key={company.id} value={company.id}>{safePlainText(company.nome || company.email || 'Empresa')}</option>)}</select></label>
       <label className="text-sm font-semibold lg:col-span-3">Assunto<input required maxLength="140" value={form.subject} onChange={event => setForm(value => ({ ...value, subject: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
       <label className="text-sm font-semibold lg:col-span-3">Mensagem<textarea required maxLength="5000" rows="7" value={form.message} onChange={event => setForm(value => ({ ...value, message: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
       <div className="flex flex-col gap-3 lg:col-span-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-gray-600"><strong>{recipients.length}</strong> destinatário(s) únicos com email válido.</p><PrimaryButton type="submit" disabled={sending || recipients.length === 0}>{sending ? 'A enviar...' : 'Enviar follow-up'}</PrimaryButton></div>

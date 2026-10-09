@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { onValue, push, ref, set, update } from 'firebase/database';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { auth, db } from '../fb';
 import { calculateCrmMetrics, companyCrmSummary, CRM_STAGE_LABEL, normalizeCrmCollections } from '../domain/crm';
 import { AdminCard, AdminPage, AdminPageHeader, EmptyState, InlineAlert, LoadingState, PrimaryButton, SecondaryButton } from './admin/ui/AdminUI';
@@ -15,10 +15,22 @@ const TABS = [['overview', 'Visão geral'], ['companies', 'Empresas'], ['billing
 const emptyOpportunity = { companyId: '', title: '', productType: 'module', productId: '', stage: 'identified', billingCycle: 'monthly', value: '', probability: 25, expectedCloseAt: '' };
 const Metric = ({ label, value, help }) => <AdminCard className="p-5"><p className="text-xs font-bold uppercase tracking-wider text-gray-500">{label}</p><p className="mt-2 text-2xl font-bold text-gray-950">{value}</p><p className="mt-1 text-xs text-gray-500">{help}</p></AdminCard>;
 
+const readDeepLink = params => {
+  const tab = params.get('tab');
+  const companyIds = String(params.get('companies') || '').split(',').map(value => value.trim()).filter(Boolean);
+  return {
+    tab: TABS.some(([id]) => id === tab) ? tab : 'overview',
+    audience: params.get('audience') || '',
+    companyIds,
+  };
+};
+
 const CrmDashboard = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [deepLink, setDeepLink] = useState(() => readDeepLink(searchParams));
   const [raw, setRaw] = useState({ companies: {}, payments: {}, crm: {} });
   const [ready, setReady] = useState({ companies: false, payments: false, crm: false });
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(deepLink.tab);
   const [search, setSearch] = useState('');
   const [relationship, setRelationship] = useState('all');
   const [page, setPage] = useState(1);
@@ -53,6 +65,12 @@ const CrmDashboard = () => {
   useEffect(() => setPage(1), [search, relationship]);
   useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
 
+  // O deep-link só se aplica uma vez: ao voltar ao separador Follow-up o formulário não é reposto.
+  const consumeDeepLink = useCallback(() => {
+    setDeepLink(value => ({ ...value, audience: '', companyIds: [] }));
+    if ([...searchParams.keys()].length) setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const changeRelationship = async (companyId, relationshipStatus) => {
     try { await update(ref(db, `adminCrm/accounts/${companyId}`), { relationshipStatus, updatedAt: Date.now(), updatedBy: auth.currentUser?.uid || null }); setFeedback({ type: 'success', message: 'Relacionamento atualizado.' }); }
     catch { setFeedback({ type: 'error', message: 'Não foi possível atualizar o cliente.' }); }
@@ -86,7 +104,7 @@ const CrmDashboard = () => {
 
       {activeTab === 'pipeline' && <AdminCard className="overflow-hidden"><div className="flex justify-between border-b p-5"><div><h2 className="text-lg font-bold">Pipeline comercial</h2><p className="text-sm text-gray-500">Oportunidades recentes.</p></div><PrimaryButton onClick={() => setShowOpportunity(true)}>Adicionar</PrimaryButton></div>{data.opportunities.length === 0 ? <EmptyState title="Pipeline vazio" description="Crie a primeira oportunidade." /> : <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">{data.opportunities.slice().sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0)).map(item => <article key={item.id} className="rounded-xl border p-4"><span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{CRM_STAGE_LABEL[item.stage] || item.stage}</span><h3 className="mt-3 font-bold">{item.title}</h3><p className="text-sm text-gray-500">{data.companies.find(company => company.id === item.companyId)?.nome || 'Empresa'}</p><p className="mt-3 text-lg font-bold">{money(item.value)}</p></article>)}</div>}</AdminCard>}
       {activeTab === 'activities' && <CrmActivitiesPanel companies={data.companies} activities={data.activities} />}
-      {activeTab === 'followup' && <CrmBulkFollowUp companies={allCompanies} renewals={renewals} invoices={data.invoices} />}
+      {activeTab === 'followup' && <CrmBulkFollowUp companies={allCompanies} renewals={renewals} invoices={data.invoices} initialAudience={deepLink.audience} initialCompanyIds={deepLink.companyIds} onInitialApplied={consumeDeepLink} />}
       {activeTab === 'billing' && <CrmBillingPanel companies={data.companies} payments={data.payments} invoices={data.invoices} />}
     </div>
 

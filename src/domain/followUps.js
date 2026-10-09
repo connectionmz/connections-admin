@@ -1,3 +1,5 @@
+import { safePlainText } from '../utils/safeText';
+
 const normalize = value => String(value || '').trim().toLowerCase();
 
 export const normalizeEmail = value => {
@@ -7,6 +9,8 @@ export const normalizeEmail = value => {
 
 const values = value => (Array.isArray(value) ? value : [value]).map(normalize).filter(Boolean);
 
+// Com empresas escolhidas, envia só para elas: província e sector servem apenas para filtrar a lista na UI.
+// Sem empresas escolhidas, envia para o segmento definido por província e sector.
 export const selectFollowUpRecipients = (companies = [], filters = {}) => {
   const companyIds = new Set(values(filters.companyIds));
   const sectors = new Set(values(filters.sectors));
@@ -15,10 +19,13 @@ export const selectFollowUpRecipients = (companies = [], filters = {}) => {
   const byEmail = new Map();
 
   companies.forEach(company => {
-    const explicitlySelected = companyIds.has(normalize(company.id));
-    const sectorMatches = sectors.size === 0 || sectors.has(normalize(company.sector || company.sectorName));
-    const provinceMatches = provinces.size === 0 || provinces.has(normalize(company.provincia || company.province));
-    if (!explicitlySelected && !(hasSegment && sectorMatches && provinceMatches)) return;
+    if (companyIds.size > 0) {
+      if (!companyIds.has(normalize(company.id))) return;
+    } else {
+      const sectorMatches = sectors.size === 0 || sectors.has(normalize(company.sector || company.sectorName));
+      const provinceMatches = provinces.size === 0 || provinces.has(normalize(company.provincia || company.province));
+      if (!(hasSegment && sectorMatches && provinceMatches)) return;
+    }
 
     const emails = Array.isArray(company.email) ? company.email : [company.email];
     emails.forEach(value => {
@@ -29,3 +36,7 @@ export const selectFollowUpRecipients = (companies = [], filters = {}) => {
 
   return [...byEmail.values()];
 };
+
+// Substitui o marcador {{empresa}} pelo nome da empresa destinatária.
+export const fillFollowUpTemplate = (text, company = {}) => String(text ?? '')
+  .replace(/\{\{\s*empresa\s*\}\}/gi, safePlainText(company.nome, 150) || 'Cliente');

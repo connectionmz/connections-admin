@@ -46,3 +46,9 @@ test('considera pagamento físico confirmado como receita real', () => {
   });
   expect(calculateCrmMetrics(data, NOW)).toEqual(expect.objectContaining({ revenueThisMonth: 2500, paidCustomers: 1 }));
 });
+
+test('exclui singulares da carteira do CRM', () => {
+  const data = normalizeCrmCollections({ c1: { nome: 'Empresa' }, s1: { nome: 'Pessoa', type: 'singular' }, c2: { nome: 'Outra', type: 'empresa' } });
+  expect(data.companies.map(company => company.id)).toEqual(['c1', 'c2']);
+  expect(calculateCrmMetrics(data, NOW).totalCompanies).toBe(2);
+});

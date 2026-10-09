@@ -1,5 +1,6 @@
 import { isActiveModule, normalizePaymentStatus, PAYMENT_STATUS } from './subscriptions';
 import { safePlainText } from '../utils/safeText';
+import { isCompanyAccount } from './engagement';
 
 export const CRM_STAGE = Object.freeze({
   IDENTIFIED: 'identified',
@@ -45,7 +46,7 @@ export const isPendingRevenuePayment = payment => {
 };
 
 export const normalizeCrmCollections = (companies = {}, payments = {}, crm = {}) => ({
-  companies: Object.entries(companies || {}).map(([id, value]) => ({ ...(value || {}), id, nome: safePlainText(value?.nome, 150) })),
+  companies: Object.entries(companies || {}).filter(([, value]) => isCompanyAccount(value)).map(([id, value]) => ({ ...(value || {}), id, nome: safePlainText(value?.nome, 150) })),
   payments: Object.entries(payments || {}).map(([id, value]) => ({ ...(value || {}), id, rawStatus: String(value?.status || '').trim().toLowerCase(), nome: safePlainText(value?.nome, 150), userName: safePlainText(value?.userName, 150), reference: safePlainText(value?.reference, 180), status: normalizePaymentStatus(value?.status) })),
   accounts: crm.accounts || {},
   opportunities: Object.entries(crm.opportunities || {}).map(([id, value]) => ({ id, ...(value || {}) })),
