@@ -6,7 +6,7 @@ import LoginModal from '../components/LoginModal';
 import Publicidade from '../components/Publicidade';
 import ServicoxExternos from '../components/ServicoxExternos';
 import Anuncios from '../components/Anuncios';
-import UsuariosOffline from '../components/Usuarios';
+import EngagementDashboard from '../components/engagement/EngagementDashboard';
 import Utilizadores from '../components/Utilizadores';
 import Cotacoes from '../components/roles/Cotacoes';
 import DashboardSectorPublico from '../components/DashboardSectorPublico';
@@ -46,7 +46,7 @@ export const adminRoutes = [
   { path: '/conteudos', label: 'Conteúdos', component: Publicidade, roles: quotations, navigation: true },
   { path: '/feedback', label: 'Feedback', component: Feedback, roles: quotations, navigation: true },
   { path: '/anuncios', label: 'Anúncios', component: Anuncios, roles: [R.ADMIN, R.ACCOUNTANT], navigation: true },
-  { path: '/utilizadores-offline', label: 'Utilizadores offline', component: UsuariosOffline, roles: adminOnly, navigation: true },
+  { path: '/utilizadores-offline', label: 'Empresas offline', component: EngagementDashboard, roles: adminOnly, navigation: true },
   { path: '/lojas', label: 'Lojas', component: Lojas, roles: adminOnly, navigation: true },
   { path: '/cotacoes', label: 'Cotações', component: Cotacoes, roles: quotations, navigation: true },
   { path: '/concursos', label: 'Concursos', component: Concursos, roles: quotations, navigation: true },
