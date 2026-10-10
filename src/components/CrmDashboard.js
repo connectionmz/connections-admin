@@ -42,7 +42,7 @@ const CrmDashboard = () => {
   const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
-    const subscriptions = [['companies', 'company'], ['payments', 'payments'], ['crm', 'adminCrm']].map(([key, path]) => onValue(ref(db, path), snapshot => {
+    const subscriptions = [['companies', 'company'], ['payments', 'payments'], ['crm', 'adminCrm'], ['accessLogs', 'accessLogs']].map(([key, path]) => onValue(ref(db, path), snapshot => {
       setRaw(previous => ({ ...previous, [key]: snapshot.val() || {}, loadedAt: Date.now() }));
       setReady(previous => ({ ...previous, [key]: true }));
     }, () => { setReady(previous => ({ ...previous, [key]: true })); setFeedback({ type: 'error', message: `Não foi possível carregar ${path}.` }); }));
