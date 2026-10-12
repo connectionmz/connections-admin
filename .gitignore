@@ -20,7 +20,11 @@
 
 # Firebase Admin credentials and exported authentication data
 **/*firebase-adminsdk*.json
-/src/fbAdmin/users.json
+**/users.json
+**/serviceAccountKey*.json
+.env
+.env.*
+!.env.example
 
 npm-debug.log*
 yarn-debug.log*

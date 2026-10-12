@@ -9,7 +9,10 @@ import { safeMultilineText, safePlainText } from '../../utils/safeText';
 import { effectiveInvoiceStatus } from '../../domain/billing';
 import { AdminCard, EmptyState, InlineAlert, PrimaryButton } from '../admin/ui/AdminUI';
 
-const initialForm = { audience: '', companyIds: [], sectors: [], provinces: [], subject: '', message: '' };
+// Com REACT_APP_EMAIL_QUEUE=true o envio passa para a Cloud Function (com link de cancelamento).
+// Sem a variável, mantém-se o envio direto pelo browser até as Functions estarem publicadas.
+const EMAIL_QUEUE = process.env.REACT_APP_EMAIL_QUEUE === 'true';
+const initialForm ={ audience: '', companyIds: [], sectors: [], provinces: [], subject: '', message: '' };
 const selected = event => [...event.target.selectedOptions].map(option => option.value);
 const normalize = value => String(value || '').trim().toLowerCase();
 
@@ -27,7 +30,7 @@ const QUICK_AUDIENCES = [
   [ENGAGEMENT.OFFLINE, 'Offline +7 dias'], [ENGAGEMENT.AT_RISK, 'Em risco'], [ENGAGEMENT.NEVER, 'Nunca acederam'],
 ];
 
-const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], engagement = [], initialAudience = '', initialCompanyIds = [], onInitialApplied }) => {
+const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], engagement = [], optOut = {}, initialAudience = '', initialCompanyIds = [], onInitialApplied }) => {
   const [form, setForm] = useState(initialForm);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -38,7 +41,9 @@ const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], engagement =
     const matchesProvince = form.provinces.length === 0 || form.provinces.some(value => normalize(value) === normalize(item.provincia || item.province));
     return matchesSector && matchesProvince;
   }), [companies, form.sectors, form.provinces]);
-  const recipients = useMemo(() => selectFollowUpRecipients(companies, form), [companies, form]);
+  const segment = useMemo(() => selectFollowUpRecipients(companies, form), [companies, form]);
+  const recipients = useMemo(() => segment.filter(recipient => !optOut[recipient.id]), [segment, optOut]);
+  const optedOut = segment.length - recipients.length;
   const withoutEmail = useMemo(() => {
     const ids = new Set(form.companyIds);
     return companies.filter(company => ids.has(company.id) && !companyEmail(company)).length;
@@ -91,11 +96,23 @@ const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], engagement =
     try {
       const subject = safePlainText(form.subject, 140);
       const message = safeMultilineText(form.message, 5000);
-      await set(campaignRef, {
-        subject, message, status: 'sending', channel: 'email', audience: form.audience || null,
+      const campaign = {
+        subject, message, channel: 'email', audience: form.audience || null,
         filters: { companyIds: form.companyIds, sectors: form.sectors, provinces: form.provinces },
         recipientCount: recipients.length, createdAt, createdBy: auth.currentUser?.uid || null,
-      });
+      };
+      if (EMAIL_QUEUE) {
+        // A Cloud Function processFollowUpQueue envia, acrescenta o link de cancelamento e grava as entregas.
+        await set(campaignRef, {
+          ...campaign,
+          status: 'queued',
+          recipients: Object.fromEntries(recipients.map(recipient => [recipient.id, { email: recipient.email, nome: safePlainText(recipient.nome, 150) }])),
+        });
+        setFeedback({ type: 'success', message: `Campanha em fila para ${recipients.length} destinatário(s). As entregas aparecem no CRM à medida que são enviadas.` });
+        setForm(initialForm);
+        return;
+      }
+      await set(campaignRef, { ...campaign, status: 'sending' });
       const results = await sendEmailBatch({ recipients, subject, text: message });
       const updates = {};
       results.forEach(({ recipient, ok, error }) => {
@@ -129,7 +146,8 @@ const CrmBulkFollowUp = ({ companies, renewals = [], invoices = [], engagement =
       <label className="text-sm font-semibold lg:col-span-3">Assunto<input required maxLength="140" value={form.subject} onChange={event => setForm(value => ({ ...value, subject: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
       <label className="text-sm font-semibold lg:col-span-3">Mensagem<span className="mt-1 block text-xs font-normal text-gray-500">Use {'{{empresa}}'} para inserir o nome de cada empresa.</span><textarea required maxLength="5000" rows="9" value={form.message} onChange={event => setForm(value => ({ ...value, message: event.target.value }))} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" /></label>
       {recipients.length > 0 && <div className="rounded-xl border border-gray-200 lg:col-span-3"><p className="border-b border-gray-200 bg-gray-50 px-4 py-2 text-sm font-bold text-gray-900">Destinatários ({recipients.length})</p><ul className="max-h-64 divide-y divide-gray-100 overflow-y-auto">{recipients.map(recipient => <li key={recipient.email} className="flex flex-col px-4 py-2 text-sm sm:flex-row sm:justify-between sm:gap-4"><span className="font-semibold text-gray-900">{safePlainText(recipient.nome || 'Empresa sem nome', 150)}</span><span className="text-gray-600">{recipient.email}</span></li>)}</ul></div>}
-      {withoutEmail > 0 && <div className="lg:col-span-3"><InlineAlert type="warning">{withoutEmail} empresa(s) escolhida(s) não têm email válido e não vão receber a mensagem.</InlineAlert></div>}
+      {optedOut > 0 && <div className="lg:col-span-3"><InlineAlert type="info">{optedOut} empresa(s) cancelaram a subscrição de emails e foram retiradas da lista.</InlineAlert></div>}
+      {withoutEmail > 0 &&<div className="lg:col-span-3"><InlineAlert type="warning">{withoutEmail} empresa(s) escolhida(s) não têm email válido e não vão receber a mensagem.</InlineAlert></div>}
       <div className="flex flex-col gap-3 lg:col-span-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-gray-600"><strong>{recipients.length}</strong> destinatário(s) únicos com email válido.</p><PrimaryButton type="submit" disabled={sending || recipients.length === 0}>{sending ? 'A enviar...' : 'Enviar follow-up'}</PrimaryButton></div>
       {companies.length === 0 && <div className="lg:col-span-3"><EmptyState title="Sem empresas" description="Não existem empresas disponíveis para segmentação." /></div>}
     </form>

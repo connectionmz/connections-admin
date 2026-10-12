@@ -26,4 +26,36 @@ O ecrã lê `company`, `accessLogs` e `adminCrm`, e o CRM passou também a ler `
 - O ecrã **não escreve** em `company/*` nem em `accessLogs/*`. Todos os contactos ficam em `adminCrm/activities`, com `source: 'engagement'` e `engagementStatus` (`active`, `at_risk`, `offline` ou `never`) no momento do contacto.
 - As campanhas de email gravam `audience` em `adminCrm/followUps/<id>`. O último contacto por empresa é calculado a partir de `adminCrm/followUps/<id>/deliveries/<companyId>`.
 
+## Cloud Functions (`connection-master/functions`)
+
+As Functions usam o Admin SDK, que ignora as regras. Escrevem apenas em `adminCrm`:
+
+| Nó | Quem escreve | Conteúdo |
+|----|--------------|----------|
+| `adminCrm/engagementState/<companyId>` | `engagementDailySweep` | Último estado de cada empresa (`status`, `since`, `autoActivityAt`), para detetar quando passa a offline. |
+| `adminCrm/engagementSweep/lastRun` | `engagementDailySweep` | Resumo da última execução diária. |
+| `adminCrm/activities/<id>` com `source: 'engagement_auto'` | `engagementDailySweep` | Follow-ups pendentes criados automaticamente. |
+| `adminCrm/followUps/<id>` com `status: 'queued'` | admin (com `REACT_APP_EMAIL_QUEUE=true`) | Campanha e mapa `recipients/<companyId>: { email, nome }`. A Function grava `deliveries`, contagens e `status`. |
+| `adminCrm/emailOptOut/<companyId>` | `unsubscribe` | Empresas que cancelaram os emails comerciais (`at`, `source`). |
+
+Como `adminCrm` só é legível por admin, as páginas públicas nunca leem estes nós.
+
+## Registo de acessos (`accessLogs`)
+
+A app cliente grava um registo por empresa e por dia em `accessLogs/<uid>/<AAAA-MM-DD>` com `{ timestamp, accessedAt }`. Regra sugerida:
+
+```json
+"accessLogs": {
+  ".read": "<mesma expressão de admin de adminCrm/.read>",
+  "$uid": {
+    "$day": {
+      ".write": "auth != null && auth.uid === $uid",
+      ".validate": "$day.matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/) && newData.hasChildren(['timestamp', 'accessedAt'])"
+    }
+  }
+}
+```
+
+Os registos antigos (chaves como `Fri Sep 04 2026`) continuam a ser lidos pelo admin. A regra só se aplica a escritas novas.
+
 Estas regras são apenas documentação local e não foram aplicadas ao Firebase.
